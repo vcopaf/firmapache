@@ -1,6 +1,7 @@
 use axum::{Router, routing::get};
 
 use super::handlers::{
+    certificates::certificates,
     pkcs11::{library, tokens},
     status::status,
     version::version,
@@ -13,6 +14,7 @@ pub fn router() -> Router {
         .route("/version", get(version))
         .route("/pkcs11/library", get(library))
         .route("/tokens", get(tokens))
+        .route("/certificates", get(certificates))
         .fallback(not_found)
 }
 

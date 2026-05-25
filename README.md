@@ -5,8 +5,8 @@ PKCS#11 para firma digital.
 
 Esta fase expone endpoints de salud y version, selecciona una libreria PKCS#11
 compatible y enumera slots con tokens presentes. Soporta el driver propietario
-Feitian ePass2003 y OpenSC. No implementa firma, PIN, certificados,
-procesamiento PDF/XML ni interfaz de escritorio.
+Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token. No
+implementa firma, PIN, procesamiento PDF/XML ni interfaz de escritorio.
 
 ## Requisitos
 
@@ -49,6 +49,7 @@ curl http://127.0.0.1:4856/status
 curl http://127.0.0.1:4856/version
 curl http://127.0.0.1:4856/pkcs11/library
 curl http://127.0.0.1:4856/tokens
+curl http://127.0.0.1:4856/certificates
 ```
 
 Para probar explicitamente un ePass2003 con el driver propietario:
@@ -59,6 +60,7 @@ cargo run
 
 curl http://127.0.0.1:4856/pkcs11/library
 curl http://127.0.0.1:4856/tokens
+curl http://127.0.0.1:4856/certificates
 ```
 
 Respuestas esperadas:
@@ -83,6 +85,13 @@ El listado de slots incluye datos publicos del token cuando esta presente:
 
 ```json
 [{"slot_id":1,"token_present":true,"label":"ePass2003","manufacturer":"Feitian Technologies Co., Ltd","model":"ePass2003","serial_number":"..."}]
+```
+
+Los certificados publicos encontrados se devuelven con su identificador y
+metadatos X.509:
+
+```json
+[{"slot_id":1,"id":"01","label":"Certificado de firma","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
 ```
 
 Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
