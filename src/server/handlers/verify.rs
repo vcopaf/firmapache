@@ -1,7 +1,7 @@
 use axum::Json;
 
 use crate::{
-    crypto::verifier,
+    core::crypto::verifier,
     error::AppError,
     models::pkcs11::{VerifyHashRequest, VerifyHashResponse},
 };

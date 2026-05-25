@@ -1,9 +1,9 @@
 use axum::Json;
 
 use crate::{
+    core::pkcs11::provider,
     error::AppError,
     models::pkcs11::{Pkcs11LibraryInfo, TokenInfo},
-    pkcs11::provider,
 };
 
 pub async fn library() -> Result<Json<Pkcs11LibraryInfo>, AppError> {

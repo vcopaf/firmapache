@@ -1,9 +1,9 @@
 use axum::Json;
 
 use crate::{
+    core::pkcs11::provider,
     error::AppError,
     models::pkcs11::{SignHashRequest, SignHashResponse},
-    pkcs11::provider,
 };
 
 pub async fn sign_hash(

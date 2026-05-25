@@ -6,8 +6,7 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::crypto::verifier::VerifyError;
-use crate::pkcs11::provider::ProviderError;
+use crate::core::{crypto::verifier::VerifyError, pkcs11::provider::ProviderError};
 
 #[derive(Debug, Error)]
 pub enum AppError {

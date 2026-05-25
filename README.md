@@ -206,9 +206,9 @@ Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 
 ## Estructura
 
-- `src/api`: rutas y handlers HTTP.
+- `src/server`: rutas y handlers HTTP.
 - `src/config`: configuracion del servicio local.
+- `src/core`: operaciones reutilizables de PKCS#11, criptografia y firma.
 - `src/error`: errores convertibles a respuestas HTTP.
 - `src/models`: modelos JSON de la API.
-- `src/pkcs11`: deteccion del proveedor y espacio para token y firma PKCS#11.
 - `src/utils`: utilidades compartidas futuras.

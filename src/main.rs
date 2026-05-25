@@ -1,9 +1,8 @@
-mod api;
 mod config;
-mod crypto;
+mod core;
 mod error;
 mod models;
-mod pkcs11;
+mod server;
 mod utils;
 
 use anyhow::{Context, Result};
@@ -24,7 +23,7 @@ async fn main() -> Result<()> {
     info!(origins = ?config.allowed_origins, "CORS allowed origins configured");
     info!(%address, "mini-firmador service started");
 
-    axum::serve(listener, api::router(&config)?)
+    axum::serve(listener, server::router(&config)?)
         .await
         .context("local HTTP server failed")
 }
