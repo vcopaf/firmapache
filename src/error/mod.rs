@@ -46,6 +46,10 @@ impl IntoResponse for AppError {
                 StatusCode::BAD_REQUEST,
                 "hash_base64 is not valid base64".to_owned(),
             ),
+            Self::Pkcs11(ProviderError::InvalidCertificateId) => (
+                StatusCode::BAD_REQUEST,
+                "certificate_id must be a non-empty hexadecimal string".to_owned(),
+            ),
             Self::Pkcs11(ProviderError::UnsupportedMechanism(mechanism)) => (
                 StatusCode::BAD_REQUEST,
                 format!("unsupported signing mechanism: {mechanism}"),
@@ -57,6 +61,10 @@ impl IntoResponse for AppError {
             Self::Pkcs11(ProviderError::PrivateKeyNotFound) => (
                 StatusCode::NOT_FOUND,
                 "PKCS#11 private key not found".to_owned(),
+            ),
+            Self::Pkcs11(ProviderError::PrivateKeyNotFoundForCertificate) => (
+                StatusCode::NOT_FOUND,
+                "Private key not found for selected certificate_id".to_owned(),
             ),
             Self::Verify(VerifyError::UnsupportedMechanism(mechanism)) => (
                 StatusCode::BAD_REQUEST,

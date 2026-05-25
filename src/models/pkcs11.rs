@@ -36,6 +36,7 @@ pub struct SignHashRequest {
     pub pin: String,
     pub hash_base64: String,
     pub mechanism: Option<String>,
+    pub certificate_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +44,7 @@ pub struct SignHashResponse {
     pub slot_id: u64,
     pub signature_base64: String,
     pub algorithm: String,
+    pub certificate_id: Option<String>,
 }
 
 #[derive(Deserialize)]

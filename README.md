@@ -98,23 +98,32 @@ certificado DER en base64 y metadatos X.509:
 ## Firma de hash
 
 El endpoint `POST /sign/hash` acepta un hash codificado en base64 y firma sus
-bytes con el mecanismo `RSA_PKCS`. Para generar un hash SHA-256 base64 de
-prueba:
+bytes con el mecanismo `RSA_PKCS`. El flujo recomendado selecciona el
+certificado cuya clave privada debe utilizarse.
+
+1. Listar los certificados publicos del token y copiar el campo `id` elegido:
 
 ```bash
-echo -n "hola" | openssl dgst -sha256 -binary | base64
+curl http://127.0.0.1:4856/certificates
 ```
 
-Solicitud de ejemplo. Reemplace los valores de ejemplo localmente; el PIN no
-se registra ni se conserva por el servicio:
+2. Generar un hash SHA-256 base64 de prueba:
+
+```bash
+HASH=$(echo -n "hola" | openssl dgst -sha256 -binary | base64)
+```
+
+3. Firmar indicando el `certificate_id`. Reemplace los valores de ejemplo
+localmente; el PIN no se registra ni se conserva por el servicio:
 
 ```bash
 curl -X POST http://127.0.0.1:4856/sign/hash \
   -H "Content-Type: application/json" \
   -d '{
     "slot_id": 1,
+    "certificate_id": "PEGAR_ID_DEL_CERTIFICADO",
     "pin": "CAMBIAR_POR_PIN_REAL",
-    "hash_base64": "BASE64_DEL_HASH",
+    "hash_base64": "PEGAR_HASH_BASE64",
     "mechanism": "RSA_PKCS"
   }'
 ```
@@ -122,12 +131,16 @@ curl -X POST http://127.0.0.1:4856/sign/hash \
 Respuesta:
 
 ```json
-{"slot_id":1,"signature_base64":"...","algorithm":"RSA_PKCS"}
+{"slot_id":1,"signature_base64":"...","algorithm":"RSA_PKCS","certificate_id":"PEGAR_ID_DEL_CERTIFICADO"}
 ```
 
 **Advertencia de seguridad:** el token puede bloquearse tras intentos de PIN
 incorrectos. `mini-firmador` realiza un solo intento de login por solicitud y
 no reintenta automaticamente cuando la autenticacion falla.
+
+Si se omite `certificate_id`, el servicio conserva el modo compatible anterior
+y selecciona una clave privada disponible, registrando una advertencia. No se
+recomienda omitirlo si el token contiene mas de un certificado.
 
 ## Verificacion local
 

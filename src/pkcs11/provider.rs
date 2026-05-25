@@ -77,12 +77,16 @@ pub enum ProviderError {
     UnsupportedMechanism(String),
     #[error("hash_base64 is not valid base64")]
     InvalidBase64Hash,
+    #[error("certificate_id is not valid hexadecimal")]
+    InvalidCertificateId,
     #[error("PKCS#11 login failed. Check PIN. No retry was attempted.")]
     LoginFailed,
     #[error("could not find PKCS#11 private keys: {0}")]
     PrivateKeySearch(#[source] cryptoki::error::Error),
     #[error("PKCS#11 private key not found")]
     PrivateKeyNotFound,
+    #[error("Private key not found for selected certificate_id")]
+    PrivateKeyNotFoundForCertificate,
     #[error("PKCS#11 signing operation failed: {0}")]
     SignFailed(#[source] cryptoki::error::Error),
     #[error("PKCS#11 logout failed after signing: {0}")]
@@ -344,6 +348,7 @@ pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderE
         pin,
         hash_base64,
         mechanism,
+        certificate_id,
     } = request;
     let algorithm = mechanism.unwrap_or_else(|| "RSA_PKCS".to_owned());
     if algorithm != "RSA_PKCS" {
@@ -353,6 +358,16 @@ pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderE
     let hash = STANDARD
         .decode(hash_base64.as_bytes())
         .map_err(|_| ProviderError::InvalidBase64Hash)?;
+    let selected_certificate_id = certificate_id
+        .as_deref()
+        .map(parse_certificate_id)
+        .transpose()?;
+    let response_certificate_id = selected_certificate_id.as_deref().map(bytes_to_hex);
+    info!(
+        slot_id,
+        certificate_id_selected = selected_certificate_id.is_some(),
+        "PKCS#11 signing request prepared"
+    );
     let auth_pin = AuthPin::new(pin);
 
     let _access_guard = PKCS11_ACCESS
@@ -388,16 +403,31 @@ pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderE
         .map_err(|_| ProviderError::LoginFailed)?;
 
     let signing_result = (|| {
-        let private_key = find_private_key(&session)?;
+        let private_key = match selected_certificate_id.as_deref() {
+            Some(certificate_id) => find_private_key_for_certificate(&session, certificate_id)?,
+            None => {
+                warn!(
+                    slot_id,
+                    "certificate_id was not specified; using automatic private key selection"
+                );
+                find_private_key(&session)?
+            }
+        };
         let signature = session
             .sign(&Mechanism::RsaPkcs, private_key, &hash)
             .map_err(ProviderError::SignFailed)?;
 
-        info!(slot_id, algorithm, "PKCS#11 hash signature created");
+        info!(
+            slot_id,
+            certificate_id_selected = selected_certificate_id.is_some(),
+            algorithm,
+            "PKCS#11 hash signature created"
+        );
         Ok(SignHashResponse {
             slot_id,
             signature_base64: STANDARD.encode(signature),
             algorithm,
+            certificate_id: response_certificate_id,
         })
     })();
 
@@ -407,6 +437,21 @@ pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderE
         (Ok(_), Err(error)) => Err(error),
         (Ok(response), Ok(())) => Ok(response),
     }
+}
+
+fn find_private_key_for_certificate(
+    session: &Session,
+    certificate_id: &[u8],
+) -> Result<ObjectHandle, ProviderError> {
+    session
+        .find_objects(&[
+            Attribute::Class(ObjectClass::PRIVATE_KEY),
+            Attribute::Id(certificate_id.to_vec()),
+        ])
+        .map_err(ProviderError::PrivateKeySearch)?
+        .first()
+        .copied()
+        .ok_or(ProviderError::PrivateKeyNotFoundForCertificate)
 }
 
 fn find_private_key(session: &Session) -> Result<ObjectHandle, ProviderError> {
@@ -468,6 +513,24 @@ fn normalize_token_text(value: &str) -> String {
 
 fn bytes_to_hex(value: &[u8]) -> String {
     value.iter().map(|byte| format!("{byte:02X}")).collect()
+}
+
+fn parse_certificate_id(value: &str) -> Result<Vec<u8>, ProviderError> {
+    if value.is_empty() || value.len() % 2 != 0 {
+        return Err(ProviderError::InvalidCertificateId);
+    }
+
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .map_err(|_| ProviderError::InvalidCertificateId)
+                .and_then(|hex| {
+                    u8::from_str_radix(hex, 16).map_err(|_| ProviderError::InvalidCertificateId)
+                })
+        })
+        .collect()
 }
 
 fn format_certificate_time(value: ASN1Time) -> String {
