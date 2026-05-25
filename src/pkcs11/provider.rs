@@ -1,14 +1,20 @@
 use std::{env, path::Path, sync::Mutex};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cryptoki::{
     context::{CInitializeArgs, Pkcs11},
-    object::{Attribute, AttributeType, CertificateType, ObjectClass},
+    mechanism::Mechanism,
+    object::{Attribute, AttributeType, CertificateType, ObjectClass, ObjectHandle},
+    session::{Session, UserType},
+    types::AuthPin,
 };
 use thiserror::Error;
 use tracing::{info, warn};
 use x509_parser::{parse_x509_certificate, time::ASN1Time};
 
-use crate::models::pkcs11::{CertificateInfo, Pkcs11LibraryInfo, TokenInfo};
+use crate::models::pkcs11::{
+    CertificateInfo, Pkcs11LibraryInfo, SignHashRequest, SignHashResponse, TokenInfo,
+};
 
 const PKCS11_LIBRARY_ENV: &str = "MINI_FIRMADOR_PKCS11";
 
@@ -65,6 +71,22 @@ pub enum ProviderError {
         #[source]
         source: cryptoki::error::Error,
     },
+    #[error("PKCS#11 slot not found or has no token: {0}")]
+    SlotNotFound(u64),
+    #[error("unsupported signing mechanism: {0}")]
+    UnsupportedMechanism(String),
+    #[error("hash_base64 is not valid base64")]
+    InvalidBase64Hash,
+    #[error("PKCS#11 login failed. Check PIN. No retry was attempted.")]
+    LoginFailed,
+    #[error("could not find PKCS#11 private keys: {0}")]
+    PrivateKeySearch(#[source] cryptoki::error::Error),
+    #[error("PKCS#11 private key not found")]
+    PrivateKeyNotFound,
+    #[error("PKCS#11 signing operation failed: {0}")]
+    SignFailed(#[source] cryptoki::error::Error),
+    #[error("PKCS#11 logout failed after signing: {0}")]
+    LogoutFailed(#[source] cryptoki::error::Error),
     #[error("PKCS#11 access lock is unavailable")]
     AccessLock,
 }
@@ -312,6 +334,128 @@ pub fn list_certificates() -> Result<Vec<CertificateInfo>, ProviderError> {
         "PKCS#11 certificates listed"
     );
     Ok(certificates)
+}
+
+pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderError> {
+    let SignHashRequest {
+        slot_id,
+        pin,
+        hash_base64,
+        mechanism,
+    } = request;
+    let algorithm = mechanism.unwrap_or_else(|| "RSA_PKCS".to_owned());
+    if algorithm != "RSA_PKCS" {
+        return Err(ProviderError::UnsupportedMechanism(algorithm));
+    }
+
+    let hash = STANDARD
+        .decode(hash_base64.as_bytes())
+        .map_err(|_| ProviderError::InvalidBase64Hash)?;
+    let auth_pin = AuthPin::new(pin);
+
+    let _access_guard = PKCS11_ACCESS
+        .lock()
+        .map_err(|_| ProviderError::AccessLock)?;
+    let library_info = detect_pkcs11_library()?;
+    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
+    let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
+        path: library_path,
+        source,
+    })?;
+
+    pkcs11
+        .initialize(CInitializeArgs::OsThreads)
+        .map_err(ProviderError::Initialize)?;
+
+    let slot = pkcs11
+        .get_slots_with_token()
+        .map_err(ProviderError::ListTokens)?
+        .into_iter()
+        .find(|slot| slot.id() == slot_id)
+        .ok_or(ProviderError::SlotNotFound(slot_id))?;
+
+    let session = match pkcs11.open_rw_session(slot) {
+        Ok(session) => session,
+        Err(_) => pkcs11
+            .open_ro_session(slot)
+            .map_err(|source| ProviderError::OpenSession { slot_id, source })?,
+    };
+
+    session
+        .login(UserType::User, Some(&auth_pin))
+        .map_err(|_| ProviderError::LoginFailed)?;
+
+    let signing_result = (|| {
+        let private_key = find_private_key(&session)?;
+        let signature = session
+            .sign(&Mechanism::RsaPkcs, private_key, &hash)
+            .map_err(ProviderError::SignFailed)?;
+
+        info!(slot_id, algorithm, "PKCS#11 hash signature created");
+        Ok(SignHashResponse {
+            slot_id,
+            signature_base64: STANDARD.encode(signature),
+            algorithm,
+        })
+    })();
+
+    let logout_result = session.logout().map_err(ProviderError::LogoutFailed);
+    match (signing_result, logout_result) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(response), Ok(())) => Ok(response),
+    }
+}
+
+fn find_private_key(session: &Session) -> Result<ObjectHandle, ProviderError> {
+    let private_keys = session
+        .find_objects(&[Attribute::Class(ObjectClass::PRIVATE_KEY)])
+        .map_err(ProviderError::PrivateKeySearch)?;
+    let first_private_key = private_keys
+        .first()
+        .copied()
+        .ok_or(ProviderError::PrivateKeyNotFound)?;
+
+    let certificates = match session.find_objects(&[
+        Attribute::Class(ObjectClass::CERTIFICATE),
+        Attribute::CertificateType(CertificateType::X_509),
+    ]) {
+        Ok(certificates) => certificates,
+        Err(error) => {
+            warn!(error = %error, "could not match private key to certificate; using first key");
+            return Ok(first_private_key);
+        }
+    };
+
+    let certificate_ids: Vec<Vec<u8>> = certificates
+        .into_iter()
+        .filter_map(|certificate| read_object_id(session, certificate))
+        .collect();
+
+    for private_key in private_keys {
+        if read_object_id(session, private_key)
+            .is_some_and(|private_key_id| certificate_ids.contains(&private_key_id))
+        {
+            return Ok(private_key);
+        }
+    }
+
+    Ok(first_private_key)
+}
+
+fn read_object_id(session: &Session, object: ObjectHandle) -> Option<Vec<u8>> {
+    match session.get_attributes(object, &[AttributeType::Id]) {
+        Ok(attributes) => attributes
+            .into_iter()
+            .find_map(|attribute| match attribute {
+                Attribute::Id(id) => Some(id),
+                _ => None,
+            }),
+        Err(error) => {
+            warn!(error = %error, "could not read CKA_ID while matching signing key");
+            None
+        }
+    }
 }
 
 fn normalize_token_text(value: &str) -> String {

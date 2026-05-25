@@ -35,6 +35,26 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("MINI_FIRMADOR_PKCS11 path does not exist: {path}"),
             ),
+            Self::Pkcs11(ProviderError::LoginFailed) => (
+                StatusCode::UNAUTHORIZED,
+                "PKCS#11 login failed. Check PIN. No retry was attempted.".to_owned(),
+            ),
+            Self::Pkcs11(ProviderError::InvalidBase64Hash) => (
+                StatusCode::BAD_REQUEST,
+                "hash_base64 is not valid base64".to_owned(),
+            ),
+            Self::Pkcs11(ProviderError::UnsupportedMechanism(mechanism)) => (
+                StatusCode::BAD_REQUEST,
+                format!("unsupported signing mechanism: {mechanism}"),
+            ),
+            Self::Pkcs11(ProviderError::SlotNotFound(slot_id)) => (
+                StatusCode::NOT_FOUND,
+                format!("PKCS#11 slot not found or has no token: {slot_id}"),
+            ),
+            Self::Pkcs11(ProviderError::PrivateKeyNotFound) => (
+                StatusCode::NOT_FOUND,
+                "PKCS#11 private key not found".to_owned(),
+            ),
             Self::Pkcs11(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PKCS#11 operation failed".to_owned(),

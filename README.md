@@ -6,7 +6,8 @@ PKCS#11 para firma digital.
 Esta fase expone endpoints de salud y version, selecciona una libreria PKCS#11
 compatible y enumera slots con tokens presentes. Soporta el driver propietario
 Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token. No
-implementa firma, PIN, procesamiento PDF/XML ni interfaz de escritorio.
+implementa procesamiento PDF/XML ni interfaz de escritorio. La firma de hash
+requiere un PIN provisto en cada solicitud y no lo almacena.
 
 ## Requisitos
 
@@ -93,6 +94,40 @@ metadatos X.509:
 ```json
 [{"slot_id":1,"id":"01","label":"Certificado de firma","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
 ```
+
+## Firma de hash
+
+El endpoint `POST /sign/hash` acepta un hash codificado en base64 y firma sus
+bytes con el mecanismo `RSA_PKCS`. Para generar un hash SHA-256 base64 de
+prueba:
+
+```bash
+echo -n "hola" | openssl dgst -sha256 -binary | base64
+```
+
+Solicitud de ejemplo. Reemplace los valores de ejemplo localmente; el PIN no
+se registra ni se conserva por el servicio:
+
+```bash
+curl -X POST http://127.0.0.1:4856/sign/hash \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slot_id": 1,
+    "pin": "CAMBIAR_POR_PIN_REAL",
+    "hash_base64": "BASE64_DEL_HASH",
+    "mechanism": "RSA_PKCS"
+  }'
+```
+
+Respuesta:
+
+```json
+{"slot_id":1,"signature_base64":"...","algorithm":"RSA_PKCS"}
+```
+
+**Advertencia de seguridad:** el token puede bloquearse tras intentos de PIN
+incorrectos. `mini-firmador` realiza un solo intento de login por solicitud y
+no reintenta automaticamente cuando la autenticacion falla.
 
 Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 

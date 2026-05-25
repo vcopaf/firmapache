@@ -1,8 +1,12 @@
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
 use super::handlers::{
     certificates::certificates,
     pkcs11::{library, tokens},
+    sign::sign_hash,
     status::status,
     version::version,
 };
@@ -15,6 +19,7 @@ pub fn router() -> Router {
         .route("/pkcs11/library", get(library))
         .route("/tokens", get(tokens))
         .route("/certificates", get(certificates))
+        .route("/sign/hash", post(sign_hash))
         .fallback(not_found)
 }
 

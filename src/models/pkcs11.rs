@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
 pub struct Pkcs11LibraryInfo {
@@ -27,4 +27,19 @@ pub struct CertificateInfo {
     pub serial_number: Option<String>,
     pub not_before: Option<String>,
     pub not_after: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SignHashRequest {
+    pub slot_id: u64,
+    pub pin: String,
+    pub hash_base64: String,
+    pub mechanism: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SignHashResponse {
+    pub slot_id: u64,
+    pub signature_base64: String,
+    pub algorithm: String,
 }
