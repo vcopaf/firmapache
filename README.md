@@ -42,6 +42,37 @@ cargo run
 
 El servidor escucha en `http://127.0.0.1:4856`.
 
+## Consumo desde NextJS
+
+El servicio habilita CORS solamente para aplicaciones web servidas desde:
+
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
+
+No se habilita el origen comodin (`*`). Las solicitudes desde otros orígenes
+no reciben autorización CORS por defecto.
+
+Ejemplo de consulta desde un componente o acción cliente de NextJS:
+
+```ts
+const response = await fetch("http://127.0.0.1:4856/certificates", {
+  method: "GET",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+if (!response.ok) {
+  throw new Error("No se pudieron cargar los certificados");
+}
+
+const certificates = await response.json();
+```
+
+Para `POST /sign/hash`, el navegador puede enviar JSON desde esos mismos
+orígenes; el PIN debe existir solo en la solicitud iniciada por el usuario y
+no debe almacenarse en el frontend.
+
 ## Verificar
 
 ```bash

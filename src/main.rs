@@ -21,9 +21,10 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("could not bind service to {address}"))?;
 
+    info!(origins = ?config.allowed_origins, "CORS allowed origins configured");
     info!(%address, "mini-firmador service started");
 
-    axum::serve(listener, api::router())
+    axum::serve(listener, api::router(&config)?)
         .await
         .context("local HTTP server failed")
 }
