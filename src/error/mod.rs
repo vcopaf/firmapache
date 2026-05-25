@@ -6,6 +6,7 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::crypto::verifier::VerifyError;
 use crate::pkcs11::provider::ProviderError;
 
 #[derive(Debug, Error)]
@@ -14,6 +15,8 @@ pub enum AppError {
     NotFound,
     #[error(transparent)]
     Pkcs11(#[from] ProviderError),
+    #[error(transparent)]
+    Verify(#[from] VerifyError),
     #[error("PKCS#11 task failed: {0}")]
     Pkcs11Task(#[from] tokio::task::JoinError),
 }
@@ -55,6 +58,11 @@ impl IntoResponse for AppError {
                 StatusCode::NOT_FOUND,
                 "PKCS#11 private key not found".to_owned(),
             ),
+            Self::Verify(VerifyError::UnsupportedMechanism(mechanism)) => (
+                StatusCode::BAD_REQUEST,
+                format!("unsupported verification mechanism: {mechanism}"),
+            ),
+            Self::Verify(error) => (StatusCode::BAD_REQUEST, error.to_string()),
             Self::Pkcs11(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PKCS#11 operation failed".to_owned(),

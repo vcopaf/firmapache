@@ -8,6 +8,7 @@ use super::handlers::{
     pkcs11::{library, tokens},
     sign::sign_hash,
     status::status,
+    verify::verify_hash,
     version::version,
 };
 use crate::error::AppError;
@@ -20,6 +21,7 @@ pub fn router() -> Router {
         .route("/tokens", get(tokens))
         .route("/certificates", get(certificates))
         .route("/sign/hash", post(sign_hash))
+        .route("/verify/hash", post(verify_hash))
         .fallback(not_found)
 }
 

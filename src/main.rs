@@ -1,5 +1,6 @@
 mod api;
 mod config;
+mod crypto;
 mod error;
 mod models;
 mod pkcs11;

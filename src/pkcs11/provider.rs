@@ -276,6 +276,7 @@ pub fn list_certificates() -> Result<Vec<CertificateInfo>, ProviderError> {
                 slot_id: slot.id(),
                 id: None,
                 label: None,
+                certificate_der_base64: None,
                 subject: None,
                 issuer: None,
                 serial_number: None,
@@ -297,6 +298,7 @@ pub fn list_certificates() -> Result<Vec<CertificateInfo>, ProviderError> {
             }
 
             if let Some(der) = der_value {
+                certificate.certificate_der_base64 = Some(STANDARD.encode(&der));
                 match parse_x509_certificate(&der) {
                     Ok((_remaining, parsed)) => {
                         certificate.subject = Some(parsed.subject().to_string());

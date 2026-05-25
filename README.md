@@ -88,11 +88,11 @@ El listado de slots incluye datos publicos del token cuando esta presente:
 [{"slot_id":1,"token_present":true,"label":"ePass2003","manufacturer":"Feitian Technologies Co., Ltd","model":"ePass2003","serial_number":"..."}]
 ```
 
-Los certificados publicos encontrados se devuelven con su identificador y
-metadatos X.509:
+Los certificados publicos encontrados se devuelven con su identificador,
+certificado DER en base64 y metadatos X.509:
 
 ```json
-[{"slot_id":1,"id":"01","label":"Certificado de firma","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
+[{"slot_id":1,"id":"01","label":"Certificado de firma","certificate_der_base64":"MIIC...","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
 ```
 
 ## Firma de hash
@@ -128,6 +128,31 @@ Respuesta:
 **Advertencia de seguridad:** el token puede bloquearse tras intentos de PIN
 incorrectos. `mini-firmador` realiza un solo intento de login por solicitud y
 no reintenta automaticamente cuando la autenticacion falla.
+
+## Verificacion local
+
+El endpoint `POST /verify/hash` verifica una firma `RSA_PKCS` usando solo el
+certificado publico devuelto por `/certificates`. No requiere PIN y no accede
+a la clave privada ni al token.
+
+```bash
+curl -X POST http://127.0.0.1:4856/verify/hash \
+  -H "Content-Type: application/json" \
+  -d '{
+    "certificate_der_base64": "BASE64_CERT_DER_OBTENIDO_DE_CERTIFICATES",
+    "hash_base64": "BASE64_DEL_HASH",
+    "signature_base64": "BASE64_DE_LA_FIRMA",
+    "mechanism": "RSA_PKCS"
+  }'
+```
+
+Respuesta cuando la firma corresponde al hash y certificado:
+
+```json
+{"valid":true,"algorithm":"RSA_PKCS"}
+```
+
+Una firma no válida responde exitosamente con `"valid": false`.
 
 Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 
