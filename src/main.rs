@@ -14,16 +14,18 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> Result<()> {
     init_tracing();
 
-    let config = AppConfig::default();
-    let address = config.bind_address();
+    let config = AppConfig::load().context("could not load service configuration")?;
+    let address = config
+        .bind_address()
+        .context("could not resolve service bind address")?;
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .with_context(|| format!("could not bind service to {address}"))?;
 
-    info!(origins = ?config.allowed_origins, "CORS allowed origins configured");
+    info!(origins = ?config.cors.allowed_origins, "CORS allowed origins configured");
     info!(%address, "mini-firmador service started");
 
-    axum::serve(listener, server::router(&config)?)
+    axum::serve(listener, server::router(config)?)
         .await
         .context("local HTTP server failed")
 }

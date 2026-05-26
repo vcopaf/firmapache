@@ -28,11 +28,48 @@ con lectores de tarjetas inteligentes.
 El servicio selecciona el modulo en este orden:
 
 1. La ruta configurada en `MINI_FIRMADOR_PKCS11`.
-2. El driver Feitian ePass2003 en su ruta comun de instalacion.
-3. Rutas comunes de OpenSC en Linux.
+2. La ruta persistida en `~/.config/mini-firmador/config.toml`.
+3. El driver Feitian ePass2003 en su ruta comun de instalacion.
+4. Rutas comunes de OpenSC en Linux.
 
 Si `MINI_FIRMADOR_PKCS11` esta definida pero no existe, el servicio informa el
 error en los endpoints PKCS#11 en lugar de usar automaticamente otro modulo.
+Si una ruta persistida no existe, el servicio registra la situacion y continua
+con la autodeteccion.
+
+## Configuracion persistente
+
+Al iniciar, el servicio crea y carga automaticamente:
+
+```text
+~/.config/mini-firmador/config.toml
+```
+
+En Linux esta ruta se obtiene mediante el directorio de configuracion del
+usuario. El archivo inicial tiene este formato:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 4856
+
+[pkcs11]
+library_path = "/usr/lib/libcastle.so.1.0.0"
+
+[cors]
+allowed_origins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]
+```
+
+`POST /config` actualiza solo los campos enviados y persiste el resultado. La
+ruta PKCS#11 actualizada se usa en las siguientes operaciones. Como el
+servidor no se reinicia automaticamente, los cambios de `server` y `cors`
+entran en vigor al siguiente inicio.
+
+La variable `MINI_FIRMADOR_PKCS11` mantiene prioridad absoluta sobre el valor
+guardado en el TOML.
 
 ## Ejecutar
 
@@ -79,6 +116,7 @@ no debe almacenarse en el frontend.
 cargo check
 curl http://127.0.0.1:4856/status
 curl http://127.0.0.1:4856/version
+curl http://127.0.0.1:4856/config
 curl http://127.0.0.1:4856/pkcs11/library
 curl http://127.0.0.1:4856/tokens
 curl http://127.0.0.1:4856/certificates
@@ -112,6 +150,7 @@ Si el driver Feitian se selecciona automaticamente:
 ```
 
 Si se selecciona usando la variable de entorno, `source` es `"env"`.
+Si se selecciona desde `config.toml`, `source` es `"config"`.
 
 El listado de slots incluye datos publicos del token cuando esta presente:
 
@@ -125,6 +164,29 @@ certificado DER en base64 y metadatos X.509:
 ```json
 [{"slot_id":1,"id":"01","label":"Certificado de firma","certificate_der_base64":"MIIC...","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
 ```
+
+## API de configuracion
+
+Consultar la configuracion activa:
+
+```bash
+curl http://127.0.0.1:4856/config
+```
+
+Actualizar, por ejemplo, solamente el driver PKCS#11:
+
+```bash
+curl -X POST http://127.0.0.1:4856/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pkcs11": {
+      "library_path": "/usr/lib/libcastle.so.1.0.0"
+    }
+  }'
+```
+
+La configuracion no contiene PIN, certificados privados, sesiones ni datos
+sensibles del token.
 
 ## Firma de hash
 

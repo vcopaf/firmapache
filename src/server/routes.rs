@@ -6,8 +6,10 @@ use axum::{
 };
 use tower_http::cors::CorsLayer;
 
+use super::AppState;
 use super::handlers::{
     certificates::certificates,
+    config::{get_config, update_config},
     pkcs11::{library, tokens},
     sign::sign_hash,
     status::status,
@@ -16,8 +18,9 @@ use super::handlers::{
 };
 use crate::{config::AppConfig, error::AppError};
 
-pub fn router(config: &AppConfig) -> Result<Router> {
+pub fn router(config: AppConfig) -> Result<Router> {
     let allowed_origins = config
+        .cors
         .allowed_origins
         .iter()
         .map(|origin| {
@@ -29,6 +32,7 @@ pub fn router(config: &AppConfig) -> Result<Router> {
         .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([CONTENT_TYPE]);
+    let state = AppState::new(config);
 
     Ok(Router::new()
         .route("/status", get(status))
@@ -38,8 +42,10 @@ pub fn router(config: &AppConfig) -> Result<Router> {
         .route("/certificates", get(certificates))
         .route("/sign/hash", post(sign_hash))
         .route("/verify/hash", post(verify_hash))
+        .route("/config", get(get_config).post(update_config))
         .fallback(not_found)
-        .layer(cors))
+        .layer(cors)
+        .with_state(state))
 }
 
 async fn not_found() -> AppError {

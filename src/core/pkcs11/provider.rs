@@ -12,8 +12,11 @@ use thiserror::Error;
 use tracing::{info, warn};
 use x509_parser::{parse_x509_certificate, time::ASN1Time};
 
-use crate::models::pkcs11::{
-    CertificateInfo, Pkcs11LibraryInfo, SignHashRequest, SignHashResponse, TokenInfo,
+use crate::{
+    config::AppConfig,
+    models::pkcs11::{
+        CertificateInfo, Pkcs11LibraryInfo, SignHashRequest, SignHashResponse, TokenInfo,
+    },
 };
 
 const PKCS11_LIBRARY_ENV: &str = "MINI_FIRMADOR_PKCS11";
@@ -95,7 +98,7 @@ pub enum ProviderError {
     AccessLock,
 }
 
-pub fn detect_pkcs11_library() -> Result<Pkcs11LibraryInfo, ProviderError> {
+pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, ProviderError> {
     if let Some(configured_path) = env::var_os(PKCS11_LIBRARY_ENV) {
         let path = configured_path.to_string_lossy().into_owned();
         if !Path::new(&path).is_file() {
@@ -113,6 +116,23 @@ pub fn detect_pkcs11_library() -> Result<Pkcs11LibraryInfo, ProviderError> {
             path: Some(path),
             source: Some("env".to_owned()),
         });
+    }
+
+    if let Some(path) = config.pkcs11.library_path.as_deref() {
+        if Path::new(path).is_file() {
+            info!(path, source = "config", "PKCS#11 library selected");
+            return Ok(Pkcs11LibraryInfo {
+                found: true,
+                path: Some(path.to_owned()),
+                source: Some("config".to_owned()),
+            });
+        }
+
+        warn!(
+            path,
+            source = "config",
+            "configured PKCS#11 library does not exist; attempting autodetection"
+        );
     }
 
     for path in COMMON_PKCS11_LIBRARY_PATHS {
@@ -134,12 +154,12 @@ pub fn detect_pkcs11_library() -> Result<Pkcs11LibraryInfo, ProviderError> {
     })
 }
 
-pub fn list_tokens() -> Result<Vec<TokenInfo>, ProviderError> {
+pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> {
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
 
-    let library_info = detect_pkcs11_library()?;
+    let library_info = detect_pkcs11_library(config)?;
     let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
 
     let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
@@ -209,12 +229,12 @@ pub fn list_tokens() -> Result<Vec<TokenInfo>, ProviderError> {
         .collect()
 }
 
-pub fn list_certificates() -> Result<Vec<CertificateInfo>, ProviderError> {
+pub fn list_certificates(config: &AppConfig) -> Result<Vec<CertificateInfo>, ProviderError> {
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
 
-    let library_info = detect_pkcs11_library()?;
+    let library_info = detect_pkcs11_library(config)?;
     let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
 
     let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
@@ -342,7 +362,10 @@ pub fn list_certificates() -> Result<Vec<CertificateInfo>, ProviderError> {
     Ok(certificates)
 }
 
-pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderError> {
+pub fn sign_hash(
+    config: &AppConfig,
+    request: SignHashRequest,
+) -> Result<SignHashResponse, ProviderError> {
     let SignHashRequest {
         slot_id,
         pin,
@@ -373,7 +396,7 @@ pub fn sign_hash(request: SignHashRequest) -> Result<SignHashResponse, ProviderE
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
-    let library_info = detect_pkcs11_library()?;
+    let library_info = detect_pkcs11_library(config)?;
     let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
     let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
         path: library_path,
