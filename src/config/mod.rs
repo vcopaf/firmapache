@@ -10,19 +10,25 @@ use tracing::info;
 
 const CONFIG_DIRECTORY: &str = "mini-firmador";
 const CONFIG_FILE: &str = "config.toml";
+const LEGACY_DEFAULT_SERVER_PORT: u16 = 4856;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
+    #[serde(default = "default_server_host")]
     pub host: String,
+    #[serde(default = "default_server_port")]
     pub port: u16,
+    #[serde(default = "default_server_https")]
+    pub https: bool,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".to_owned(),
-            port: 4856,
+            host: default_server_host(),
+            port: default_server_port(),
+            https: default_server_https(),
         }
     }
 }
@@ -30,13 +36,14 @@ impl Default for ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Pkcs11Config {
+    #[serde(default = "default_pkcs11_library_path")]
     pub library_path: Option<String>,
 }
 
 impl Default for Pkcs11Config {
     fn default() -> Self {
         Self {
-            library_path: Some("/usr/lib/libcastle.so.1.0.0".to_owned()),
+            library_path: default_pkcs11_library_path(),
         }
     }
 }
@@ -44,16 +51,14 @@ impl Default for Pkcs11Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CorsConfig {
+    #[serde(default = "default_allowed_origins")]
     pub allowed_origins: Vec<String>,
 }
 
 impl Default for CorsConfig {
     fn default() -> Self {
         Self {
-            allowed_origins: vec![
-                "http://localhost:3000".to_owned(),
-                "http://127.0.0.1:3000".to_owned(),
-            ],
+            allowed_origins: default_allowed_origins(),
         }
     }
 }
@@ -64,6 +69,29 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub pkcs11: Pkcs11Config,
     pub cors: CorsConfig,
+}
+
+fn default_server_host() -> String {
+    "127.0.0.1".to_owned()
+}
+
+fn default_server_port() -> u16 {
+    4637
+}
+
+fn default_server_https() -> bool {
+    true
+}
+
+fn default_pkcs11_library_path() -> Option<String> {
+    Some("/usr/lib/libcastle.so.1.0.0".to_owned())
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec![
+        "http://localhost:3000".to_owned(),
+        "http://127.0.0.1:3000".to_owned(),
+    ]
 }
 
 impl AppConfig {
@@ -82,10 +110,30 @@ impl AppConfig {
             path: path.clone(),
             source,
         })?;
-        let config: Self = toml::from_str(&contents).map_err(|source| ConfigError::Parse {
+        let raw: toml::Value = toml::from_str(&contents).map_err(|source| ConfigError::Parse {
             path: path.clone(),
             source,
         })?;
+        let uses_legacy_server_defaults = raw
+            .get("server")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|server| !server.contains_key("https"));
+        let mut config: Self = raw.try_into().map_err(|source| ConfigError::Parse {
+            path: path.clone(),
+            source,
+        })?;
+
+        if uses_legacy_server_defaults && config.server.port == LEGACY_DEFAULT_SERVER_PORT {
+            config.server.port = default_server_port();
+            config.save_to(&path)?;
+            info!(
+                path = %path.display(),
+                old_port = LEGACY_DEFAULT_SERVER_PORT,
+                new_port = config.server.port,
+                "legacy server configuration migrated to HTTPS defaults"
+            );
+        }
+
         config.validate()?;
         info!(path = %path.display(), "configuration loaded");
 
@@ -97,8 +145,12 @@ impl AppConfig {
     }
 
     pub fn config_path() -> Result<PathBuf, ConfigError> {
+        Ok(Self::config_directory()?.join(CONFIG_FILE))
+    }
+
+    pub fn config_directory() -> Result<PathBuf, ConfigError> {
         dirs::config_dir()
-            .map(|directory| directory.join(CONFIG_DIRECTORY).join(CONFIG_FILE))
+            .map(|directory| directory.join(CONFIG_DIRECTORY))
             .ok_or(ConfigError::ConfigDirectoryUnavailable)
     }
 
@@ -118,6 +170,9 @@ impl AppConfig {
             }
             if let Some(port) = server.port {
                 config.server.port = port;
+            }
+            if let Some(https) = server.https {
+                config.server.https = https;
             }
         }
         if let Some(pkcs11) = update.pkcs11 {
@@ -199,6 +254,7 @@ pub struct AppConfigUpdate {
 pub struct ServerConfigUpdate {
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub https: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

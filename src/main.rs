@@ -18,16 +18,28 @@ async fn main() -> Result<()> {
     let address = config
         .bind_address()
         .context("could not resolve service bind address")?;
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .with_context(|| format!("could not bind service to {address}"))?;
-
+    let https = config.server.https;
     info!(origins = ?config.cors.allowed_origins, "CORS allowed origins configured");
-    info!(%address, "mini-firmador service started");
+    let app = server::router(config)?;
 
-    axum::serve(listener, server::router(config)?)
-        .await
-        .context("local HTTP server failed")
+    if https {
+        let tls_config = server::tls::load_or_generate_config().await?;
+        info!(%address, "mini-firmador HTTPS service started");
+
+        axum_server::bind_rustls(address, tls_config)
+            .serve(app.into_make_service())
+            .await
+            .context("local HTTPS server failed")
+    } else {
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .with_context(|| format!("could not bind service to {address}"))?;
+        info!(%address, "mini-firmador HTTP service started");
+
+        axum::serve(listener, app)
+            .await
+            .context("local HTTP server failed")
+    }
 }
 
 fn init_tracing() {

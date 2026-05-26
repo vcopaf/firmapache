@@ -1,5 +1,6 @@
 pub mod handlers;
 mod routes;
+pub mod tls;
 
 use std::sync::{Arc, RwLock};
 

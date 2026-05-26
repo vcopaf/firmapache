@@ -10,6 +10,7 @@ use super::AppState;
 use super::handlers::{
     certificates::certificates,
     config::{get_config, update_config},
+    home::home,
     pkcs11::{library, tokens},
     sign::sign_hash,
     status::status,
@@ -35,6 +36,7 @@ pub fn router(config: AppConfig) -> Result<Router> {
     let state = AppState::new(config);
 
     Ok(Router::new()
+        .route("/", get(home))
         .route("/status", get(status))
         .route("/version", get(version))
         .route("/pkcs11/library", get(library))

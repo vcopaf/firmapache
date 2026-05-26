@@ -51,7 +51,8 @@ usuario. El archivo inicial tiene este formato:
 ```toml
 [server]
 host = "127.0.0.1"
-port = 4856
+port = 4637
+https = true
 
 [pkcs11]
 library_path = "/usr/lib/libcastle.so.1.0.0"
@@ -71,13 +72,35 @@ entran en vigor al siguiente inicio.
 La variable `MINI_FIRMADOR_PKCS11` mantiene prioridad absoluta sobre el valor
 guardado en el TOML.
 
+Con `server.https = true`, el servicio genera automaticamente un certificado
+self-signed para `localhost` y `127.0.0.1` en:
+
+```text
+~/.config/mini-firmador/certs/localhost.crt
+~/.config/mini-firmador/certs/localhost.key
+```
+
+El certificado local no se instala en el trust store del sistema. Por eso
+`curl` requiere `-k` hasta que el certificado se configure como confiable.
+Al cargar un archivo creado por una version anterior sin `server.https`, el
+antiguo puerto por defecto `4856` se migra automaticamente a `4637`; puertos
+personalizados se conservan.
+
 ## Ejecutar
 
 ```bash
 cargo run
 ```
 
-El servidor escucha en `http://127.0.0.1:4856`.
+Por defecto el servidor escucha en `https://localhost:4637/`.
+
+Para desarrollo sin TLS, establezca `https = false` en el bloque `[server]`;
+en ese modo escucha en `http://127.0.0.1:4637/`.
+
+```bash
+curl http://127.0.0.1:4637/
+curl http://127.0.0.1:4637/status
+```
 
 ## Consumo desde NextJS
 
@@ -92,7 +115,7 @@ no reciben autorización CORS por defecto.
 Ejemplo de consulta desde un componente o acción cliente de NextJS:
 
 ```ts
-const response = await fetch("http://127.0.0.1:4856/certificates", {
+const response = await fetch("https://localhost:4637/certificates", {
   method: "GET",
   headers: {
     "Content-Type": "application/json",
@@ -114,12 +137,13 @@ no debe almacenarse en el frontend.
 
 ```bash
 cargo check
-curl http://127.0.0.1:4856/status
-curl http://127.0.0.1:4856/version
-curl http://127.0.0.1:4856/config
-curl http://127.0.0.1:4856/pkcs11/library
-curl http://127.0.0.1:4856/tokens
-curl http://127.0.0.1:4856/certificates
+curl -k https://localhost:4637/
+curl -k https://localhost:4637/status
+curl -k https://localhost:4637/version
+curl -k https://localhost:4637/config
+curl -k https://localhost:4637/pkcs11/library
+curl -k https://localhost:4637/tokens
+curl -k https://localhost:4637/certificates
 ```
 
 Para probar explicitamente un ePass2003 con el driver propietario:
@@ -128,9 +152,9 @@ Para probar explicitamente un ePass2003 con el driver propietario:
 export MINI_FIRMADOR_PKCS11=/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0
 cargo run
 
-curl http://127.0.0.1:4856/pkcs11/library
-curl http://127.0.0.1:4856/tokens
-curl http://127.0.0.1:4856/certificates
+curl -k https://localhost:4637/pkcs11/library
+curl -k https://localhost:4637/tokens
+curl -k https://localhost:4637/certificates
 ```
 
 Respuestas esperadas:
@@ -170,13 +194,13 @@ certificado DER en base64 y metadatos X.509:
 Consultar la configuracion activa:
 
 ```bash
-curl http://127.0.0.1:4856/config
+curl -k https://localhost:4637/config
 ```
 
 Actualizar, por ejemplo, solamente el driver PKCS#11:
 
 ```bash
-curl -X POST http://127.0.0.1:4856/config \
+curl -k -X POST https://localhost:4637/config \
   -H "Content-Type: application/json" \
   -d '{
     "pkcs11": {
@@ -197,7 +221,7 @@ certificado cuya clave privada debe utilizarse.
 1. Listar los certificados publicos del token y copiar el campo `id` elegido:
 
 ```bash
-curl http://127.0.0.1:4856/certificates
+curl -k https://localhost:4637/certificates
 ```
 
 2. Generar un hash SHA-256 base64 de prueba:
@@ -210,7 +234,7 @@ HASH=$(echo -n "hola" | openssl dgst -sha256 -binary | base64)
 localmente; el PIN no se registra ni se conserva por el servicio:
 
 ```bash
-curl -X POST http://127.0.0.1:4856/sign/hash \
+curl -k -X POST https://localhost:4637/sign/hash \
   -H "Content-Type: application/json" \
   -d '{
     "slot_id": 1,
@@ -242,7 +266,7 @@ certificado publico devuelto por `/certificates`. No requiere PIN y no accede
 a la clave privada ni al token.
 
 ```bash
-curl -X POST http://127.0.0.1:4856/verify/hash \
+curl -k -X POST https://localhost:4637/verify/hash \
   -H "Content-Type: application/json" \
   -d '{
     "certificate_der_base64": "BASE64_CERT_DER_OBTENIDO_DE_CERTIFICATES",

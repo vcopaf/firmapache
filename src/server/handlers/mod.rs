@@ -1,5 +1,6 @@
 pub mod certificates;
 pub mod config;
+pub mod home;
 pub mod pkcs11;
 pub mod sign;
 pub mod status;
