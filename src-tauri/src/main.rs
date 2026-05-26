@@ -33,6 +33,8 @@ fn main() {
             commands::list_tokens,
             commands::list_certificates,
             commands::list_signing_sessions,
+            commands::approve_signing_session,
+            commands::reject_signing_session,
         ])
         .run(tauri::generate_context!())
         .expect("could not run MiniFirmador desktop application");

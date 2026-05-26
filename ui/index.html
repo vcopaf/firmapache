@@ -68,10 +68,35 @@
         <h2>Sesiones de firma</h2>
         <button id="reload-sessions" class="text-button">Recargar</button>
       </div>
-      <p class="quiet">Vista informativa: la aprobacion se mantiene fuera de esta UI.</p>
+      <p class="quiet">Las solicitudes pendientes pueden aprobarse o rechazarse desde esta interfaz. No se muestra el contenido del archivo.</p>
       <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
     </section>
   </main>
+
+  <div id="sign-modal-backdrop" class="modal-backdrop hidden">
+    <section class="sign-modal" role="dialog" aria-modal="true" aria-labelledby="sign-modal-title">
+      <div class="card-title modal-title">
+        <div>
+          <p class="eyebrow modal-eyebrow">Autorizacion local</p>
+          <h2 id="sign-modal-title">Solicitud de firma</h2>
+        </div>
+        <button id="close-sign-modal" class="close-button" aria-label="Cerrar solicitud">Cerrar</button>
+      </div>
+      <dl class="modal-summary">
+        <div><dt>ID de sesion</dt><dd id="modal-session-id">-</dd></div>
+        <div><dt>Formato</dt><dd id="modal-format">-</dd></div>
+        <div><dt>Idioma</dt><dd id="modal-language">-</dd></div>
+        <div><dt>Estado</dt><dd id="modal-status">pendiente</dd></div>
+      </dl>
+      <h3>Archivos</h3>
+      <div id="modal-files" class="list"></div>
+      <p class="quiet">En esta fase se autoriza el flujo temporal; no se solicita PIN ni se realiza una firma criptografica.</p>
+      <div class="modal-actions">
+        <button id="modal-reject" class="danger">Rechazar</button>
+        <button id="modal-approve">Aprobar</button>
+      </div>
+    </section>
+  </div>
 
   <div id="error-banner" class="error-banner hidden" role="alert"></div>
   <script src="app.js"></script>

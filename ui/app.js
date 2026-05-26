@@ -1,6 +1,9 @@
 const invoke = window.__TAURI__.core.invoke;
 
 let config = null;
+let activeModalSession = null;
+let loadingSessions = false;
+const displayedSessionIds = new Set();
 
 function showError(error) {
   const banner = document.getElementById("error-banner");
@@ -31,6 +34,24 @@ function item(title, details) {
 function showItems(container, items) {
   container.className = "list";
   container.replaceChildren(...items);
+}
+
+function button(label, className, action) {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = label;
+  if (className) {
+    element.className = className;
+  }
+  element.addEventListener("click", action);
+  return element;
+}
+
+function approximateSize(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B aprox.`;
+  }
+  return `${(bytes / 1024).toFixed(1)} KB aprox.`;
 }
 
 async function loadStatus() {
@@ -102,21 +123,86 @@ async function loadCertificates() {
   )));
 }
 
+function closeSigningModal() {
+  activeModalSession = null;
+  document.getElementById("sign-modal-backdrop").classList.add("hidden");
+  document.getElementById("modal-files").replaceChildren();
+}
+
+function openSigningModal(session) {
+  activeModalSession = session;
+  displayedSessionIds.add(session.id);
+  document.getElementById("modal-session-id").textContent = session.id;
+  document.getElementById("modal-format").textContent = session.format;
+  document.getElementById("modal-language").textContent = session.language || "-";
+  document.getElementById("modal-status").textContent = "pendiente";
+  showItems(document.getElementById("modal-files"), session.files.map((file) => item(
+    file.name,
+    [`Tamano: ${approximateSize(file.approximate_size_bytes)}`],
+  )));
+  document.getElementById("sign-modal-backdrop").classList.remove("hidden");
+  document.getElementById("modal-approve").focus();
+}
+
+async function resolveSigningSession(action, session) {
+  const resolvingActiveModal = activeModalSession && activeModalSession.id === session.id;
+  const modalApprove = document.getElementById("modal-approve");
+  const modalReject = document.getElementById("modal-reject");
+  if (resolvingActiveModal) {
+    modalApprove.disabled = true;
+    modalReject.disabled = true;
+  }
+  try {
+    const command = action === "approve" ? "approve_signing_session" : "reject_signing_session";
+    await invoke(command, { sessionId: session.id });
+    if (resolvingActiveModal) {
+      closeSigningModal();
+    }
+    await loadSessions();
+  } finally {
+    modalApprove.disabled = false;
+    modalReject.disabled = false;
+  }
+}
+
+function sessionItem(session) {
+  const article = item(
+    session.files.map((file) => file.name).join(", "),
+    [
+      `ID: ${session.id}`,
+      `Formato: ${session.format} - Idioma: ${session.language || "-"}`,
+      `Estado: ${session.status}`,
+    ],
+  );
+  const actions = document.createElement("div");
+  actions.className = "item-actions";
+  actions.append(
+    button("Ver solicitud", "secondary", () => openSigningModal(session)),
+    button("Rechazar", "danger", () => run(() => resolveSigningSession("reject", session))),
+    button("Aprobar", "", () => run(() => resolveSigningSession("approve", session))),
+  );
+  article.appendChild(actions);
+  return article;
+}
+
 async function loadSessions() {
   const container = document.getElementById("sessions");
   const sessions = await invoke("list_signing_sessions");
   const pending = sessions.filter((session) => session.status === "pending");
+  if (activeModalSession && !pending.some((session) => session.id === activeModalSession.id)) {
+    closeSigningModal();
+  }
   if (!pending.length) {
     empty(container, "Sin sesiones pendientes.");
     return;
   }
-  showItems(container, pending.map((session) => item(
-    session.files.map((file) => file.name).join(", "),
-    [
-      `ID: ${session.id}`,
-      `Formato: ${session.format} - Estado: ${session.status}`,
-    ],
-  )));
+  showItems(container, pending.map(sessionItem));
+  if (!activeModalSession) {
+    const newSession = pending.find((session) => !displayedSessionIds.has(session.id));
+    if (newSession) {
+      openSigningModal(newSession);
+    }
+  }
 }
 
 async function run(task) {
@@ -136,7 +222,33 @@ document.getElementById("test-token").addEventListener("click", () => run(loadTo
 document.getElementById("reload-tokens").addEventListener("click", () => run(loadTokens));
 document.getElementById("reload-certificates").addEventListener("click", () => run(loadCertificates));
 document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
+document.getElementById("close-sign-modal").addEventListener("click", closeSigningModal);
+document.getElementById("modal-approve").addEventListener("click", () => {
+  if (activeModalSession) {
+    run(() => resolveSigningSession("approve", activeModalSession));
+  }
+});
+document.getElementById("modal-reject").addEventListener("click", () => {
+  if (activeModalSession) {
+    run(() => resolveSigningSession("reject", activeModalSession));
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && activeModalSession) {
+    closeSigningModal();
+  }
+});
 
 run(async () => {
   await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
 });
+
+window.setInterval(() => {
+  if (loadingSessions) {
+    return;
+  }
+  loadingSessions = true;
+  run(loadSessions).finally(() => {
+    loadingSessions = false;
+  });
+}, 1000);

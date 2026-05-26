@@ -2,14 +2,16 @@ use mini_firmador::{
     config::AppConfig,
     core::pkcs11::provider,
     models::{
+        compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
-        signing::SigningSession,
+        signing::{SigningSession, SigningSessionStatus},
     },
     server::AppState,
 };
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
+use uuid::Uuid;
 
 #[derive(Serialize)]
 pub struct ServiceStatus {
@@ -19,6 +21,22 @@ pub struct ServiceStatus {
     https: bool,
     port: u16,
     pkcs11_library_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SigningSessionView {
+    id: String,
+    files: Vec<SigningSessionFileView>,
+    format: String,
+    language: Option<String>,
+    status: &'static str,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+pub struct SigningSessionFileView {
+    name: String,
+    approximate_size_bytes: usize,
 }
 
 #[tauri::command]
@@ -91,13 +109,84 @@ pub async fn list_certificates(state: State<'_, AppState>) -> Result<Vec<Certifi
 }
 
 #[tauri::command]
-pub fn list_signing_sessions(state: State<'_, AppState>) -> Result<Vec<SigningSession>, String> {
+pub fn list_signing_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<SigningSessionView>, String> {
     state
         .signing_sessions()
         .list()
+        .map(|sessions| sessions.into_iter().map(session_view).collect())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn approve_signing_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<CompatibleSignResponse, String> {
+    state
+        .signing_sessions()
+        .approve(parse_session_id(&session_id)?)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn reject_signing_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<SigningSessionView, String> {
+    state
+        .signing_sessions()
+        .reject(parse_session_id(&session_id)?)
+        .map(session_view)
         .map_err(|error| error.to_string())
 }
 
 fn current_config(state: &State<'_, AppState>) -> Result<AppConfig, String> {
     state.config().map_err(|error| error.to_string())
+}
+
+fn parse_session_id(session_id: &str) -> Result<Uuid, String> {
+    Uuid::parse_str(session_id).map_err(|_| "Invalid signing session id".to_owned())
+}
+
+fn session_view(session: SigningSession) -> SigningSessionView {
+    SigningSessionView {
+        id: session.id.to_string(),
+        files: session
+            .files
+            .into_iter()
+            .map(|file| SigningSessionFileView {
+                name: file.name,
+                approximate_size_bytes: approximate_decoded_size(&file.content_base64),
+            })
+            .collect(),
+        format: session.format,
+        language: session.language,
+        status: status_name(session.status),
+        created_at: session.created_at.to_rfc3339(),
+    }
+}
+
+fn approximate_decoded_size(content_base64: &str) -> usize {
+    let padding = content_base64
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'=')
+        .count();
+    content_base64
+        .len()
+        .saturating_mul(3)
+        .saturating_div(4)
+        .saturating_sub(padding)
+}
+
+fn status_name(status: SigningSessionStatus) -> &'static str {
+    match status {
+        SigningSessionStatus::Pending => "pending",
+        SigningSessionStatus::Approved => "approved",
+        SigningSessionStatus::Rejected => "rejected",
+        SigningSessionStatus::Expired => "expired",
+    }
 }

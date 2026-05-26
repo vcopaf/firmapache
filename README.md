@@ -122,11 +122,11 @@ La ventana permite:
 - Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
 - Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
 - Consultar tokens y certificados publicos.
-- Ver sesiones de firma pendientes.
+- Ver sesiones de firma pendientes y autorizar o rechazar visualmente su flujo.
 
-La interfaz no solicita ni almacena PIN, y todavia no firma ni aprueba
-sesiones. Los endpoints internos de desarrollo siguen siendo el unico modo
-temporal de aprobar o rechazar una solicitud compatible.
+La interfaz no solicita ni almacena PIN, y todavia no ejecuta una firma
+criptografica. La aprobacion visual solo completa el flujo temporal devolviendo
+el Base64 normalizado; los endpoints internos se mantienen para desarrollo.
 
 ## Consumo desde NextJS
 
@@ -242,9 +242,9 @@ sensibles del token.
 
 El endpoint `POST /sign` recibe el payload compatible de archivo y formato
 `"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
-Aunque existe la interfaz Tauri administrativa, aun no autoriza sesiones: los
-endpoints de sesiones simulan temporalmente la aprobacion o cancelacion del
-usuario.
+La interfaz Tauri detecta la sesion pendiente y abre un modal para aprobar o
+rechazar la operacion. El modal solo muestra nombres y tamanos aproximados de
+los archivos; no recibe ni muestra su contenido completo.
 
 Todavia no se genera un JWS ni se realiza una operacion de firma con el token.
 El resultado aprobado devuelve los mismos archivos con Base64 normalizado.
@@ -266,39 +266,8 @@ curl -k -X POST https://localhost:4637/sign \
   }'
 ```
 
-La terminal queda esperando. En otra terminal, listar las sesiones pendientes:
-
-```bash
-curl -k https://localhost:4637/sign/sessions
-```
-
-La respuesta incluye un UUID interno para la simulacion local:
-
-```json
-[
-  {
-    "id": "UUID",
-    "files": [
-      {
-        "name": "solicitud.json",
-        "content_base64": "eyJob2xhIjoibXVuZG8ifQ=="
-      }
-    ],
-    "format": "jws",
-    "language": "es",
-    "status": "pending",
-    "created_at": "..."
-  }
-]
-```
-
-Aprobar desde la terminal 2:
-
-```bash
-curl -k -X POST https://localhost:4637/sign/sessions/UUID/approve
-```
-
-Solo entonces la terminal 1 responde:
+La terminal queda esperando. En la aplicacion Tauri aparece el modal
+`Solicitud de firma`; al pulsar **Aprobar**, la terminal responde:
 
 ```json
 {
@@ -311,17 +280,19 @@ Solo entonces la terminal 1 responde:
 }
 ```
 
-Para simular cancelacion:
-
-```bash
-curl -k -X POST https://localhost:4637/sign/sessions/UUID/reject
-```
-
-El request `POST /sign` pendiente responde:
+Repita la solicitud y pulse **Rechazar** en el modal. El request `POST /sign`
+pendiente responde:
 
 ```json
 {"error":"User cancelled signing operation"}
 ```
+
+El panel de sesiones tambien ofrece botones `Aprobar` y `Rechazar`. Cerrar el
+modal no resuelve la solicitud: permanece pendiente y puede abrirse nuevamente
+desde el panel. Una misma sesion no genera modales automaticos duplicados.
+
+Los endpoints `/sign/sessions/{id}/approve` y `/reject` se conservan como
+herramientas internas de desarrollo.
 
 Si una solicitud no se resuelve en cinco minutos, responde con HTTP 408:
 
