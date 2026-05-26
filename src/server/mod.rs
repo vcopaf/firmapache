@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
     config::{AppConfig, ConfigError},
+    core::signing::session_manager::SigningSessionManager,
     error::AppError,
 };
 
@@ -14,12 +15,14 @@ pub use routes::router;
 #[derive(Clone)]
 pub struct AppState {
     config: Arc<RwLock<AppConfig>>,
+    signing_sessions: SigningSessionManager,
 }
 
 impl AppState {
     pub fn new(config: AppConfig) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
+            signing_sessions: SigningSessionManager::new(),
         }
     }
 
@@ -35,5 +38,9 @@ impl AppState {
         *active_config = config;
 
         Ok(())
+    }
+
+    pub fn signing_sessions(&self) -> &SigningSessionManager {
+        &self.signing_sessions
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     config::ConfigError,
     core::{
         crypto::verifier::VerifyError, pkcs11::provider::ProviderError,
-        signing::compatible::CompatibleSignError,
+        signing::session_manager::SigningSessionError,
     },
 };
 
@@ -25,7 +25,7 @@ pub enum AppError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    CompatibleSign(#[from] CompatibleSignError),
+    SigningSession(#[from] SigningSessionError),
     #[error("PKCS#11 task failed: {0}")]
     Pkcs11Task(#[from] tokio::task::JoinError),
 }
@@ -87,7 +87,27 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration operation failed".to_owned(),
             ),
-            Self::CompatibleSign(error) => (StatusCode::BAD_REQUEST, error.to_string()),
+            Self::SigningSession(SigningSessionError::Compatible(error)) => {
+                (StatusCode::BAD_REQUEST, error.to_string())
+            }
+            Self::SigningSession(SigningSessionError::NotFound) => {
+                (StatusCode::NOT_FOUND, "Session not found".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::AlreadyResolved) => {
+                (StatusCode::CONFLICT, "Session already resolved".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::Expired) => (
+                StatusCode::REQUEST_TIMEOUT,
+                "Signing request expired".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::Rejected) => (
+                StatusCode::BAD_REQUEST,
+                "User cancelled signing operation".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::StateLock) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "signing session operation failed".to_owned(),
+            ),
             Self::Pkcs11(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PKCS#11 operation failed".to_owned(),
@@ -105,5 +125,17 @@ impl IntoResponse for AppError {
         }
 
         (status, Json(ErrorResponse { error: message })).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expired_signing_session_returns_request_timeout() {
+        let response = AppError::from(SigningSessionError::Expired).into_response();
+
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
     }
 }

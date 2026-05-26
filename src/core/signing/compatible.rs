@@ -4,6 +4,7 @@ use thiserror::Error;
 use crate::models::compatible::{
     CompatibleOutputFile, CompatibleSignRequest, CompatibleSignResponse,
 };
+use crate::models::signing::SigningSessionFile;
 
 #[derive(Debug, Error)]
 pub enum CompatibleSignError {
@@ -19,9 +20,15 @@ pub enum CompatibleSignError {
     UnsupportedFormat(String),
 }
 
+pub struct PreparedSignRequest {
+    pub files: Vec<SigningSessionFile>,
+    pub format: String,
+    pub language: Option<String>,
+}
+
 pub fn prepare_sign_request(
     request: CompatibleSignRequest,
-) -> Result<CompatibleSignResponse, CompatibleSignError> {
+) -> Result<PreparedSignRequest, CompatibleSignError> {
     let CompatibleSignRequest {
         archivo,
         format,
@@ -43,14 +50,18 @@ pub fn prepare_sign_request(
             }
 
             let contents = parse_input_base64(&file.base64)?;
-            Ok(CompatibleOutputFile {
-                base64: STANDARD.encode(contents),
+            Ok(SigningSessionFile {
+                content_base64: STANDARD.encode(contents),
                 name: file.name,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(CompatibleSignResponse { files })
+    Ok(PreparedSignRequest {
+        files,
+        format,
+        language: _language,
+    })
 }
 
 pub fn parse_input_base64(input: &str) -> Result<Vec<u8>, CompatibleSignError> {
@@ -74,4 +85,16 @@ pub fn parse_input_base64(input: &str) -> Result<Vec<u8>, CompatibleSignError> {
     STANDARD
         .decode(encoded.as_bytes())
         .map_err(|_| CompatibleSignError::InvalidBase64)
+}
+
+pub fn response_for_files(files: &[SigningSessionFile]) -> CompatibleSignResponse {
+    CompatibleSignResponse {
+        files: files
+            .iter()
+            .map(|file| CompatibleOutputFile {
+                base64: file.content_base64.clone(),
+                name: file.name.clone(),
+            })
+            .collect(),
+    }
 }

@@ -14,6 +14,7 @@ use super::handlers::{
     home::home,
     pkcs11::{library, tokens},
     sign::sign_hash,
+    signing_sessions::{approve, reject, session, sessions},
     status::status,
     verify::verify_hash,
     version::version,
@@ -44,6 +45,10 @@ pub fn router(config: AppConfig) -> Result<Router> {
         .route("/tokens", get(tokens))
         .route("/certificates", get(certificates))
         .route("/sign", post(compatible_sign))
+        .route("/sign/sessions", get(sessions))
+        .route("/sign/sessions/{id}", get(session))
+        .route("/sign/sessions/{id}/approve", post(approve))
+        .route("/sign/sessions/{id}/reject", post(reject))
         .route("/sign/hash", post(sign_hash))
         .route("/verify/hash", post(verify_hash))
         .route("/config", get(get_config).post(update_config))

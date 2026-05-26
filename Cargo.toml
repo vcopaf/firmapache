@@ -8,6 +8,7 @@ anyhow = "1.0"
 axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
 cryptoki = "0.10"
 dirs = "6.0"
 rcgen = "0.14"
@@ -15,9 +16,10 @@ rsa = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.45", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.45", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 x509-parser = "0.18"
+uuid = { version = "1", features = ["v4", "serde"] }

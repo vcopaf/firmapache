@@ -212,11 +212,17 @@ curl -k -X POST https://localhost:4637/config \
 La configuracion no contiene PIN, certificados privados, sesiones ni datos
 sensibles del token.
 
-## Firma compatible temporal
+## Firma compatible sincrona
 
 El endpoint `POST /sign` recibe el payload compatible de archivo y formato
-`"jws"`. En esta fase valida y normaliza los archivos, pero aun no genera un
-JWS ni realiza una operacion de firma con el token.
+`"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
+En esta fase todavia no existe la interfaz Tauri: los endpoints de sesiones
+simulan temporalmente la aprobacion o cancelacion del usuario.
+
+Todavia no se genera un JWS ni se realiza una operacion de firma con el token.
+El resultado aprobado devuelve los mismos archivos con Base64 normalizado.
+
+Terminal 1:
 
 ```bash
 curl -k -X POST https://localhost:4637/sign \
@@ -233,7 +239,39 @@ curl -k -X POST https://localhost:4637/sign \
   }'
 ```
 
-Respuesta temporal:
+La terminal queda esperando. En otra terminal, listar las sesiones pendientes:
+
+```bash
+curl -k https://localhost:4637/sign/sessions
+```
+
+La respuesta incluye un UUID interno para la simulacion local:
+
+```json
+[
+  {
+    "id": "UUID",
+    "files": [
+      {
+        "name": "solicitud.json",
+        "content_base64": "eyJob2xhIjoibXVuZG8ifQ=="
+      }
+    ],
+    "format": "jws",
+    "language": "es",
+    "status": "pending",
+    "created_at": "..."
+  }
+]
+```
+
+Aprobar desde la terminal 2:
+
+```bash
+curl -k -X POST https://localhost:4637/sign/sessions/UUID/approve
+```
+
+Solo entonces la terminal 1 responde:
 
 ```json
 {
@@ -244,6 +282,24 @@ Respuesta temporal:
     }
   ]
 }
+```
+
+Para simular cancelacion:
+
+```bash
+curl -k -X POST https://localhost:4637/sign/sessions/UUID/reject
+```
+
+El request `POST /sign` pendiente responde:
+
+```json
+{"error":"User cancelled signing operation"}
+```
+
+Si una solicitud no se resuelve en cinco minutos, responde con HTTP 408:
+
+```json
+{"error":"Signing request expired"}
 ```
 
 El campo `base64` de entrada tambien puede enviarse sin el prefijo `data:`;

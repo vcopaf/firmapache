@@ -13,12 +13,12 @@ pub struct CompatibleInputFile {
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CompatibleSignResponse {
     pub files: Vec<CompatibleOutputFile>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CompatibleOutputFile {
     pub base64: String,
     pub name: String,

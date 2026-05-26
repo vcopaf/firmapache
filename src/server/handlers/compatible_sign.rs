@@ -1,13 +1,20 @@
-use axum::Json;
+use axum::{Json, extract::State};
 
 use crate::{
-    core::signing::compatible,
+    core::signing::session_manager::SigningSessionError,
     error::AppError,
     models::compatible::{CompatibleSignRequest, CompatibleSignResponse},
+    models::signing::SigningSessionResult,
+    server::AppState,
 };
 
 pub async fn compatible_sign(
+    State(state): State<AppState>,
     Json(request): Json<CompatibleSignRequest>,
 ) -> Result<Json<CompatibleSignResponse>, AppError> {
-    Ok(Json(compatible::prepare_sign_request(request)?))
+    match state.signing_sessions().create_and_wait(request).await? {
+        SigningSessionResult::Signed(response) => Ok(Json(response)),
+        SigningSessionResult::Rejected => Err(SigningSessionError::Rejected.into()),
+        SigningSessionResult::Expired => Err(SigningSessionError::Expired.into()),
+    }
 }
