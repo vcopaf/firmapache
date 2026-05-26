@@ -4,6 +4,9 @@ pub mod tls;
 
 use std::sync::{Arc, RwLock};
 
+use anyhow::{Context, Result};
+use tracing::info;
+
 use crate::{
     config::{AppConfig, ConfigError},
     core::signing::session_manager::SigningSessionManager,
@@ -42,5 +45,37 @@ impl AppState {
 
     pub fn signing_sessions(&self) -> &SigningSessionManager {
         &self.signing_sessions
+    }
+}
+
+pub async fn serve(state: AppState) -> Result<()> {
+    let config = state
+        .config()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+        .context("could not read service configuration")?;
+    let address = config
+        .bind_address()
+        .context("could not resolve service bind address")?;
+    let https = config.server.https;
+    info!(origins = ?config.cors.allowed_origins, "CORS allowed origins configured");
+    let app = router(state)?;
+
+    if https {
+        let tls_config = tls::load_or_generate_config().await?;
+        info!(%address, "mini-firmador HTTPS service started");
+
+        axum_server::bind_rustls(address, tls_config)
+            .serve(app.into_make_service())
+            .await
+            .context("local HTTPS server failed")
+    } else {
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .with_context(|| format!("could not bind service to {address}"))?;
+        info!(%address, "mini-firmador HTTP service started");
+
+        axum::serve(listener, app)
+            .await
+            .context("local HTTP server failed")
     }
 }

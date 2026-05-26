@@ -19,9 +19,13 @@ use super::handlers::{
     verify::verify_hash,
     version::version,
 };
-use crate::{config::AppConfig, error::AppError};
+use crate::error::AppError;
 
-pub fn router(config: AppConfig) -> Result<Router> {
+pub fn router(state: AppState) -> Result<Router> {
+    let config = state
+        .config()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+        .context("could not read router configuration")?;
     let allowed_origins = config
         .cors
         .allowed_origins
@@ -35,8 +39,6 @@ pub fn router(config: AppConfig) -> Result<Router> {
         .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([CONTENT_TYPE]);
-    let state = AppState::new(config);
-
     Ok(Router::new()
         .route("/", get(home))
         .route("/status", get(status))

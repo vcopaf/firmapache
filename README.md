@@ -6,7 +6,8 @@ PKCS#11 para firma digital.
 Esta fase expone endpoints de salud y version, selecciona una libreria PKCS#11
 compatible y enumera slots con tokens presentes. Soporta el driver propietario
 Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token. No
-implementa procesamiento PDF/XML ni interfaz de escritorio. La firma de hash
+implementa procesamiento PDF/XML. Incluye una interfaz Tauri administrativa
+minima que reutiliza el mismo core y el mismo servidor local. La firma de hash
 requiere un PIN provisto en cada solicitud y no lo almacena.
 
 ## Requisitos
@@ -101,6 +102,31 @@ en ese modo escucha en `http://127.0.0.1:4637/`.
 curl http://127.0.0.1:4637/
 curl http://127.0.0.1:4637/status
 ```
+
+## Interfaz Tauri
+
+La aplicacion de escritorio inicia el mismo servicio Axum local y comparte su
+`AppState` con los comandos Tauri; no duplica operaciones PKCS#11 ni logica de
+firma. Para levantarla en desarrollo:
+
+```bash
+cargo install tauri-cli --version "^2" --locked
+cargo tauri dev
+```
+
+No ejecute `cargo run` al mismo tiempo: la aplicacion Tauri ya arranca el
+servicio local en el puerto configurado.
+
+La ventana permite:
+
+- Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
+- Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
+- Consultar tokens y certificados publicos.
+- Ver sesiones de firma pendientes.
+
+La interfaz no solicita ni almacena PIN, y todavia no firma ni aprueba
+sesiones. Los endpoints internos de desarrollo siguen siendo el unico modo
+temporal de aprobar o rechazar una solicitud compatible.
 
 ## Consumo desde NextJS
 
@@ -216,8 +242,9 @@ sensibles del token.
 
 El endpoint `POST /sign` recibe el payload compatible de archivo y formato
 `"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
-En esta fase todavia no existe la interfaz Tauri: los endpoints de sesiones
-simulan temporalmente la aprobacion o cancelacion del usuario.
+Aunque existe la interfaz Tauri administrativa, aun no autoriza sesiones: los
+endpoints de sesiones simulan temporalmente la aprobacion o cancelacion del
+usuario.
 
 Todavia no se genera un JWS ni se realiza una operacion de firma con el token.
 El resultado aprobado devuelve los mismos archivos con Base64 normalizado.
@@ -385,6 +412,8 @@ Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 
 ## Estructura
 
+- `src-tauri`: aplicacion de escritorio y comandos que consumen el core.
+- `ui`: interfaz HTML/CSS/JavaScript minima para administracion local.
 - `src/server`: rutas y handlers HTTP.
 - `src/config`: configuracion del servicio local.
 - `src/core`: operaciones reutilizables de PKCS#11, criptografia y firma.

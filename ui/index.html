@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniFirmador</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="header">
+    <div>
+      <p class="eyebrow">Servicio local de firma digital</p>
+      <h1>MiniFirmador</h1>
+    </div>
+    <button id="refresh-all" class="secondary">Actualizar</button>
+  </header>
+
+  <main class="layout">
+    <section class="card status-card">
+      <div class="card-title">
+        <h2>Estado</h2>
+        <span id="service-indicator" class="badge pending">Consultando</span>
+      </div>
+      <dl class="summary">
+        <div><dt>Servicio</dt><dd id="service-name">-</dd></div>
+        <div><dt>Version</dt><dd id="service-version">-</dd></div>
+        <div><dt>Modo</dt><dd id="service-mode">-</dd></div>
+        <div><dt>Puerto</dt><dd id="service-port">-</dd></div>
+        <div class="wide"><dt>Driver activo</dt><dd id="active-library-path">-</dd></div>
+      </dl>
+    </section>
+
+    <section class="card config-card">
+      <div class="card-title">
+        <h2>Configuracion</h2>
+        <span id="save-message" class="quiet"></span>
+      </div>
+      <label for="library-path">Driver PKCS#11</label>
+      <div class="path-row">
+        <input id="library-path" type="text" readonly placeholder="Seleccione una biblioteca .so o .so.*">
+        <button id="choose-library" class="secondary">Seleccionar .so</button>
+      </div>
+      <div class="button-row">
+        <button id="save-config">Guardar configuracion</button>
+        <button id="test-token" class="secondary">Probar driver / token</button>
+      </div>
+      <p class="quiet">No se solicita ni almacena PIN en esta interfaz.</p>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>Tokens</h2>
+        <button id="reload-tokens" class="text-button">Recargar</button>
+      </div>
+      <div id="tokens" class="list empty">Sin consulta.</div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>Certificados</h2>
+        <button id="reload-certificates" class="text-button">Recargar</button>
+      </div>
+      <div id="certificates" class="list empty">Sin consulta.</div>
+    </section>
+
+    <section class="card sessions-card">
+      <div class="card-title">
+        <h2>Sesiones de firma</h2>
+        <button id="reload-sessions" class="text-button">Recargar</button>
+      </div>
+      <p class="quiet">Vista informativa: la aprobacion se mantiene fuera de esta UI.</p>
+      <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
+    </section>
+  </main>
+
+  <div id="error-banner" class="error-banner hidden" role="alert"></div>
+  <script src="app.js"></script>
+</body>
+</html>
