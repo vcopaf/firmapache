@@ -1,4 +1,5 @@
 pub mod certificates;
+pub mod compatible_sign;
 pub mod config;
 pub mod home;
 pub mod pkcs11;

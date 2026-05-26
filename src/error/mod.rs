@@ -8,7 +8,10 @@ use thiserror::Error;
 
 use crate::{
     config::ConfigError,
-    core::{crypto::verifier::VerifyError, pkcs11::provider::ProviderError},
+    core::{
+        crypto::verifier::VerifyError, pkcs11::provider::ProviderError,
+        signing::compatible::CompatibleSignError,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -21,6 +24,8 @@ pub enum AppError {
     Verify(#[from] VerifyError),
     #[error(transparent)]
     Config(#[from] ConfigError),
+    #[error(transparent)]
+    CompatibleSign(#[from] CompatibleSignError),
     #[error("PKCS#11 task failed: {0}")]
     Pkcs11Task(#[from] tokio::task::JoinError),
 }
@@ -82,6 +87,7 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration operation failed".to_owned(),
             ),
+            Self::CompatibleSign(error) => (StatusCode::BAD_REQUEST, error.to_string()),
             Self::Pkcs11(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PKCS#11 operation failed".to_owned(),

@@ -9,6 +9,7 @@ use tower_http::cors::CorsLayer;
 use super::AppState;
 use super::handlers::{
     certificates::certificates,
+    compatible_sign::compatible_sign,
     config::{get_config, update_config},
     home::home,
     pkcs11::{library, tokens},
@@ -42,6 +43,7 @@ pub fn router(config: AppConfig) -> Result<Router> {
         .route("/pkcs11/library", get(library))
         .route("/tokens", get(tokens))
         .route("/certificates", get(certificates))
+        .route("/sign", post(compatible_sign))
         .route("/sign/hash", post(sign_hash))
         .route("/verify/hash", post(verify_hash))
         .route("/config", get(get_config).post(update_config))

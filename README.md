@@ -212,6 +212,43 @@ curl -k -X POST https://localhost:4637/config \
 La configuracion no contiene PIN, certificados privados, sesiones ni datos
 sensibles del token.
 
+## Firma compatible temporal
+
+El endpoint `POST /sign` recibe el payload compatible de archivo y formato
+`"jws"`. En esta fase valida y normaliza los archivos, pero aun no genera un
+JWS ni realiza una operacion de firma con el token.
+
+```bash
+curl -k -X POST https://localhost:4637/sign \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "archivo": [
+      {
+        "base64": "data:application/json;base64,eyJob2xhIjoibXVuZG8ifQ==",
+        "name": "solicitud.json"
+      }
+    ],
+    "format": "jws",
+    "language": "es"
+  }'
+```
+
+Respuesta temporal:
+
+```json
+{
+  "files": [
+    {
+      "base64": "eyJob2xhIjoibXVuZG8ifQ==",
+      "name": "solicitud.json"
+    }
+  ]
+}
+```
+
+El campo `base64` de entrada tambien puede enviarse sin el prefijo `data:`;
+la salida siempre contiene Base64 estandar limpio.
+
 ## Firma de hash
 
 El endpoint `POST /sign/hash` acepta un hash codificado en base64 y firma sus
