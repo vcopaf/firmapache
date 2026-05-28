@@ -122,11 +122,12 @@ La ventana permite:
 - Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
 - Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
 - Consultar tokens y certificados publicos.
-- Ver sesiones de firma pendientes y autorizar o rechazar visualmente su flujo.
+- Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
+  visualmente su flujo.
 
-La interfaz no solicita ni almacena PIN, y todavia no ejecuta una firma
-criptografica. La aprobacion visual solo completa el flujo temporal devolviendo
-el Base64 normalizado; los endpoints internos se mantienen para desarrollo.
+La interfaz solicita el PIN solo dentro del modal de firma y no lo almacena. La
+aprobacion visual genera un JWS compact real con el token PKCS#11; los endpoints
+internos se mantienen para desarrollo.
 
 ## Consumo desde NextJS
 
@@ -244,10 +245,24 @@ El endpoint `POST /sign` recibe el payload compatible de archivo y formato
 `"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
 La interfaz Tauri detecta la sesion pendiente y abre un modal para aprobar o
 rechazar la operacion. El modal solo muestra nombres y tamanos aproximados de
-los archivos; no recibe ni muestra su contenido completo.
+los archivos; no muestra su contenido completo.
 
-Todavia no se genera un JWS ni se realiza una operacion de firma con el token.
-El resultado aprobado devuelve los mismos archivos con Base64 normalizado.
+Al aprobar, el usuario selecciona un certificado, escribe el PIN del token y el
+core genera un JWS compact real:
+
+```text
+BASE64URL(header).BASE64URL(payload).BASE64URL(signature)
+```
+
+El campo `x5c` del header contiene el certificado DER en Base64 estandar. El
+JWS compact resultante se devuelve codificado nuevamente como Base64 estandar en
+`response.files[].base64`.
+
+Levantar la aplicacion:
+
+```bash
+cargo tauri dev
+```
 
 Terminal 1:
 
@@ -267,17 +282,35 @@ curl -k -X POST https://localhost:4637/sign \
 ```
 
 La terminal queda esperando. En la aplicacion Tauri aparece el modal
-`Solicitud de firma`; al pulsar **Aprobar**, la terminal responde:
+`Solicitud de firma`:
+
+1. Seleccione un certificado.
+2. Escriba el PIN del token.
+3. Pulse **Aprobar**.
+
+La terminal responde:
 
 ```json
 {
   "files": [
     {
-      "base64": "eyJob2xhIjoibXVuZG8ifQ==",
+      "base64": "BASE64_DEL_JWS_COMPACT",
       "name": "solicitud.json"
     }
   ]
 }
+```
+
+Para inspeccionar el JWS devuelto:
+
+```bash
+echo "BASE64_DEL_JWS_COMPACT" | base64 -d
+```
+
+Debe verse una cadena con tres partes separadas por puntos:
+
+```text
+header.payload.signature
 ```
 
 Repita la solicitud y pulse **Rechazar** en el modal. El request `POST /sign`
@@ -290,6 +323,9 @@ pendiente responde:
 El panel de sesiones tambien ofrece botones `Aprobar` y `Rechazar`. Cerrar el
 modal no resuelve la solicitud: permanece pendiente y puede abrirse nuevamente
 desde el panel. Una misma sesion no genera modales automaticos duplicados.
+
+Si falta certificado o PIN, la UI no permite aprobar. Si el login PKCS#11 falla,
+se muestra el error y no se reintenta automaticamente.
 
 Los endpoints `/sign/sessions/{id}/approve` y `/reject` se conservan como
 herramientas internas de desarrollo.

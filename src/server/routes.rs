@@ -1,12 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{
-    Router,
-    http::{HeaderValue, Method, header::CONTENT_TYPE},
+    http::Method,
     routing::{get, post},
+    Router,
 };
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
-use super::AppState;
 use super::handlers::{
     certificates::certificates,
     compatible_sign::compatible_sign,
@@ -19,26 +18,15 @@ use super::handlers::{
     verify::verify_hash,
     version::version,
 };
+use super::AppState;
 use crate::error::AppError;
 
 pub fn router(state: AppState) -> Result<Router> {
-    let config = state
-        .config()
-        .map_err(|error| anyhow::anyhow!(error.to_string()))
-        .context("could not read router configuration")?;
-    let allowed_origins = config
-        .cors
-        .allowed_origins
-        .iter()
-        .map(|origin| {
-            HeaderValue::from_str(origin)
-                .with_context(|| format!("invalid CORS allowed origin: {origin}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
     let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
+        .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([CONTENT_TYPE]);
+        .allow_headers(Any);
+
     Ok(Router::new()
         .route("/", get(home))
         .route("/status", get(status))

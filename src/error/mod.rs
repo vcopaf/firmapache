@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::{
     config::ConfigError,
     core::{
-        crypto::verifier::VerifyError, pkcs11::provider::ProviderError,
+        crypto::verifier::VerifyError, pkcs11::provider::ProviderError, signing::jws::JwsSignError,
         signing::session_manager::SigningSessionError,
     },
 };
@@ -90,6 +90,28 @@ impl IntoResponse for AppError {
             Self::SigningSession(SigningSessionError::Compatible(error)) => {
                 (StatusCode::BAD_REQUEST, error.to_string())
             }
+            Self::SigningSession(SigningSessionError::Jws(
+                JwsSignError::MissingCertificateSelection,
+            )) => (
+                StatusCode::BAD_REQUEST,
+                "Missing certificate selection".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::Jws(JwsSignError::MissingPin)) => {
+                (StatusCode::BAD_REQUEST, "Missing PIN".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::Jws(JwsSignError::CertificateNotFound)) => {
+                (StatusCode::NOT_FOUND, "Certificate not found".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::Jws(JwsSignError::Pkcs11(
+                ProviderError::LoginFailed,
+            ))) => (
+                StatusCode::UNAUTHORIZED,
+                "PKCS#11 login failed. Check PIN. No retry was attempted.".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::Jws(error)) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JWS signing failed: {error}"),
+            ),
             Self::SigningSession(SigningSessionError::NotFound) => {
                 (StatusCode::NOT_FOUND, "Session not found".to_owned())
             }

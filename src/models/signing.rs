@@ -29,6 +29,13 @@ pub struct SigningSessionFile {
     pub content_base64: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ApproveSigningSessionInput {
+    pub slot_id: u64,
+    pub certificate_id: String,
+    pub pin: String,
+}
+
 pub enum SigningSessionResult {
     Signed(CompatibleSignResponse),
     Rejected,

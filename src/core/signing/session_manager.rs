@@ -11,12 +11,20 @@ use tokio::time::timeout;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::models::{
-    compatible::{CompatibleSignRequest, CompatibleSignResponse},
-    signing::{SigningSession, SigningSessionResult, SigningSessionStatus},
+use crate::{
+    config::AppConfig,
+    models::{
+        compatible::{CompatibleSignRequest, CompatibleSignResponse},
+        signing::{
+            ApproveSigningSessionInput, SigningSession, SigningSessionResult, SigningSessionStatus,
+        },
+    },
 };
 
-use super::compatible::{self, CompatibleSignError};
+use super::{
+    compatible::{self, CompatibleSignError},
+    jws::{self, JwsSignError},
+};
 
 const SIGNING_SESSION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -102,7 +110,47 @@ impl SigningSessionManager {
             .ok_or(SigningSessionError::NotFound)
     }
 
-    pub fn approve(&self, id: Uuid) -> Result<CompatibleSignResponse, SigningSessionError> {
+    pub fn approve_with_jws(
+        &self,
+        id: Uuid,
+        config: &AppConfig,
+        input: ApproveSigningSessionInput,
+    ) -> Result<CompatibleSignResponse, SigningSessionError> {
+        let session = {
+            let sessions = self
+                .sessions
+                .read()
+                .map_err(|_| SigningSessionError::StateLock)?;
+            let state = sessions.get(&id).ok_or(SigningSessionError::NotFound)?;
+            ensure_pending(&state.session)?;
+            state.session.clone()
+        };
+
+        let response = jws::sign_files(config, &session.files, input)?;
+        self.resolve_signed(id, response)
+    }
+
+    pub fn approve_temporarily(
+        &self,
+        id: Uuid,
+    ) -> Result<CompatibleSignResponse, SigningSessionError> {
+        let response = {
+            let sessions = self
+                .sessions
+                .read()
+                .map_err(|_| SigningSessionError::StateLock)?;
+            let state = sessions.get(&id).ok_or(SigningSessionError::NotFound)?;
+            ensure_pending(&state.session)?;
+            compatible::response_for_files(&state.session.files)
+        };
+        self.resolve_signed(id, response)
+    }
+
+    fn resolve_signed(
+        &self,
+        id: Uuid,
+        response: CompatibleSignResponse,
+    ) -> Result<CompatibleSignResponse, SigningSessionError> {
         let (response, sender, format, file_count) = {
             let mut sessions = self
                 .sessions
@@ -113,7 +161,7 @@ impl SigningSessionManager {
 
             state.session.status = SigningSessionStatus::Approved;
             (
-                compatible::response_for_files(&state.session.files),
+                response,
                 state.sender.take(),
                 state.session.format.clone(),
                 state.session.files.len(),
@@ -206,6 +254,8 @@ fn ensure_pending(session: &SigningSession) -> Result<(), SigningSessionError> {
 pub enum SigningSessionError {
     #[error(transparent)]
     Compatible(#[from] CompatibleSignError),
+    #[error(transparent)]
+    Jws(#[from] JwsSignError),
     #[error("Session not found")]
     NotFound,
     #[error("Session already resolved")]

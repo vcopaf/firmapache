@@ -44,7 +44,7 @@
         <button id="save-config">Guardar configuracion</button>
         <button id="test-token" class="secondary">Probar driver / token</button>
       </div>
-      <p class="quiet">No se solicita ni almacena PIN en esta interfaz.</p>
+      <p class="quiet">El PIN solo se solicita al aprobar una firma y no se almacena.</p>
     </section>
 
     <section class="card">
@@ -90,7 +90,14 @@
       </dl>
       <h3>Archivos</h3>
       <div id="modal-files" class="list"></div>
-      <p class="quiet">En esta fase se autoriza el flujo temporal; no se solicita PIN ni se realiza una firma criptografica.</p>
+      <div class="modal-form">
+        <label for="modal-certificate">Certificado para firmar</label>
+        <select id="modal-certificate"></select>
+        <label for="modal-pin">PIN del token</label>
+        <input id="modal-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+      </div>
+      <p id="modal-sign-error" class="modal-error hidden" role="alert"></p>
+      <p class="quiet">El PIN se usa solo para esta aprobacion. No se guarda ni se envia al endpoint publico <code>POST /sign</code>.</p>
       <div class="modal-actions">
         <button id="modal-reject" class="danger">Rechazar</button>
         <button id="modal-approve">Aprobar</button>

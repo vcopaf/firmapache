@@ -27,7 +27,7 @@ pub async fn approve(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CompatibleSignResponse>, AppError> {
-    Ok(Json(state.signing_sessions().approve(id)?))
+    Ok(Json(state.signing_sessions().approve_temporarily(id)?))
 }
 
 pub async fn reject(

@@ -4,7 +4,7 @@ use mini_firmador::{
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
-        signing::{SigningSession, SigningSessionStatus},
+        signing::{ApproveSigningSessionInput, SigningSession, SigningSessionStatus},
     },
     server::AppState,
 };
@@ -120,14 +120,37 @@ pub fn list_signing_sessions(
 }
 
 #[tauri::command]
-pub fn approve_signing_session(
+pub async fn approve_signing_session(
     state: State<'_, AppState>,
     session_id: String,
+    slot_id: u64,
+    certificate_id: String,
+    pin: String,
 ) -> Result<CompatibleSignResponse, String> {
-    state
-        .signing_sessions()
-        .approve(parse_session_id(&session_id)?)
-        .map_err(|error| error.to_string())
+    if certificate_id.trim().is_empty() {
+        return Err("Missing certificate selection".to_owned());
+    }
+    if pin.is_empty() {
+        return Err("Missing PIN".to_owned());
+    }
+
+    let id = parse_session_id(&session_id)?;
+    let config = current_config(&state)?;
+    let manager = state.signing_sessions().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.approve_with_jws(
+            id,
+            &config,
+            ApproveSigningSessionInput {
+                slot_id,
+                certificate_id,
+                pin,
+            },
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
