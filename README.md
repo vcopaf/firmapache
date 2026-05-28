@@ -125,9 +125,16 @@ La ventana permite:
 - Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
   visualmente su flujo.
 
-La interfaz solicita el PIN solo dentro del modal de firma y no lo almacena. La
-aprobacion visual genera un JWS compact real con el token PKCS#11; los endpoints
-internos se mantienen para desarrollo.
+La aplicacion vive en la bandeja del sistema. Al cerrar la ventana principal, la
+app se oculta pero el servidor local sigue activo. Desde el tray se puede abrir
+MiniFirmador, mostrar sesiones pendientes, reiniciar el servidor embebido o
+salir completamente.
+
+Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
+`Solicitud de firma` sobre el escritorio. Esa ventana pide certificado y PIN,
+muestra estados de carga como `Firmando... no retire el token`, y deshabilita
+los botones mientras se completa la operacion. El PIN solo existe durante esa
+aprobacion y no se almacena.
 
 ## Consumo desde NextJS
 
@@ -243,9 +250,10 @@ sensibles del token.
 
 El endpoint `POST /sign` recibe el payload compatible de archivo y formato
 `"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
-La interfaz Tauri detecta la sesion pendiente y abre un modal para aprobar o
-rechazar la operacion. El modal solo muestra nombres y tamanos aproximados de
-los archivos; no muestra su contenido completo.
+La interfaz Tauri detecta la sesion pendiente y abre la ventana independiente
+`Solicitud de firma` para aprobar o rechazar la operacion. La ventana solo
+muestra nombres y tamanos aproximados de los archivos; no muestra su contenido
+completo.
 
 Al aprobar, el usuario selecciona un certificado, escribe el PIN del token y el
 core genera un JWS compact real:
@@ -264,6 +272,10 @@ Levantar la aplicacion:
 cargo tauri dev
 ```
 
+Puede cerrar la ventana principal despues de iniciar: MiniFirmador queda en
+segundo plano en el tray y el servicio `https://localhost:4637/` sigue
+respondiendo.
+
 Terminal 1:
 
 ```bash
@@ -281,7 +293,7 @@ curl -k -X POST https://localhost:4637/sign \
   }'
 ```
 
-La terminal queda esperando. En la aplicacion Tauri aparece el modal
+La terminal queda esperando. En la aplicacion Tauri aparece la ventana
 `Solicitud de firma`:
 
 1. Seleccione un certificado.
@@ -313,16 +325,17 @@ Debe verse una cadena con tres partes separadas por puntos:
 header.payload.signature
 ```
 
-Repita la solicitud y pulse **Rechazar** en el modal. El request `POST /sign`
+Repita la solicitud y pulse **Rechazar** en la ventana. El request `POST /sign`
 pendiente responde:
 
 ```json
 {"error":"User cancelled signing operation"}
 ```
 
-El panel de sesiones tambien ofrece botones `Aprobar` y `Rechazar`. Cerrar el
-modal no resuelve la solicitud: permanece pendiente y puede abrirse nuevamente
-desde el panel. Una misma sesion no genera modales automaticos duplicados.
+El panel de sesiones tambien ofrece botones `Aprobar` y `Rechazar`. Cerrar la
+ventana de firma no resuelve la solicitud: permanece pendiente y puede abrirse
+nuevamente desde el panel o desde el menu del tray. Una misma sesion no genera
+ventanas automaticas duplicadas.
 
 Si falta certificado o PIN, la UI no permite aprobar. Si el login PKCS#11 falla,
 se muestra el error y no se reintenta automaticamente.

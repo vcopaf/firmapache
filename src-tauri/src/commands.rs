@@ -6,12 +6,27 @@ use mini_firmador::{
         pkcs11::{CertificateInfo, TokenInfo},
         signing::{ApproveSigningSessionInput, SigningSession, SigningSessionStatus},
     },
-    server::AppState,
+    server::{self, AppState},
 };
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
+
+const SIGNING_WINDOW_LABEL: &str = "signing";
+
+pub struct DesktopState {
+    server_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+}
+
+impl DesktopState {
+    pub fn new() -> Self {
+        Self {
+            server_task: Mutex::new(None),
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct ServiceStatus {
@@ -154,6 +169,32 @@ pub async fn approve_signing_session(
 }
 
 #[tauri::command]
+pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+    show_main_window_for_app(&app)
+}
+
+#[tauri::command]
+pub fn show_signing_window(app: AppHandle) -> Result<(), String> {
+    show_signing_window_for_app(&app)
+}
+
+#[tauri::command]
+pub fn hide_signing_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(SIGNING_WINDOW_LABEL) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn restart_server(
+    state: State<'_, AppState>,
+    desktop: State<'_, DesktopState>,
+) -> Result<(), String> {
+    start_embedded_server(&desktop, state.inner().clone())
+}
+
+#[tauri::command]
 pub fn reject_signing_session(
     state: State<'_, AppState>,
     session_id: String,
@@ -167,6 +208,70 @@ pub fn reject_signing_session(
 
 fn current_config(state: &State<'_, AppState>) -> Result<AppConfig, String> {
     state.config().map_err(|error| error.to_string())
+}
+
+pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<(), String> {
+    let mut server_task = desktop
+        .server_task
+        .lock()
+        .map_err(|_| "server runtime lock is unavailable".to_owned())?;
+    if let Some(task) = server_task.take() {
+        task.abort();
+    }
+
+    *server_task = Some(tauri::async_runtime::spawn(async move {
+        if let Err(error) = server::serve(state).await {
+            tracing::error!(%error, "embedded local service stopped");
+        }
+    }));
+    Ok(())
+}
+
+pub fn show_main_window_for_app(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_owned())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+pub fn show_signing_window_for_app(app: &AppHandle) -> Result<(), String> {
+    let window = match app.get_webview_window(SIGNING_WINDOW_LABEL) {
+        Some(window) => window,
+        None => {
+            let window = WebviewWindowBuilder::new(
+                app,
+                SIGNING_WINDOW_LABEL,
+                WebviewUrl::App("index.html?window=signing".into()),
+            )
+            .title("Solicitud de firma - MiniFirmador")
+            .inner_size(620.0, 720.0)
+            .min_inner_size(520.0, 560.0)
+            .resizable(false)
+            .always_on_top(true)
+            .focused(true)
+            .center()
+            .build()
+            .map_err(|error| error.to_string())?;
+            let close_window = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = close_window.hide();
+                }
+            });
+            window
+        }
+    };
+
+    window.show().map_err(|error| error.to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.center().map_err(|error| error.to_string())?;
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
 }
 
 fn parse_session_id(session_id: &str) -> Result<Uuid, String> {

@@ -1,11 +1,12 @@
 use anyhow::Result;
 use axum::{
+    Router,
     http::Method,
     routing::{get, post},
-    Router,
 };
 use tower_http::cors::{Any, CorsLayer};
 
+use super::AppState;
 use super::handlers::{
     certificates::certificates,
     compatible_sign::compatible_sign,
@@ -18,7 +19,6 @@ use super::handlers::{
     verify::verify_hash,
     version::version,
 };
-use super::AppState;
 use crate::error::AppError;
 
 pub fn router(state: AppState) -> Result<Router> {

@@ -1,17 +1,31 @@
 const invoke = window.__TAURI__.core.invoke;
+const currentWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
 let config = null;
-let activeModalSession = null;
+let activeSigningSession = null;
 let loadingSessions = false;
 let certificates = [];
+let tokens = [];
 let certificatesLoaded = false;
-const displayedSessionIds = new Set();
+let signingInProgress = false;
+const windowMode = currentWindow.label === "signing" ? "signing" : "main";
 
 function showError(error) {
   const banner = document.getElementById("error-banner");
   banner.textContent = String(error);
   banner.classList.remove("hidden");
   window.setTimeout(() => banner.classList.add("hidden"), 6000);
+}
+
+function setAppStatus(text, state = "pending") {
+  const textElement = document.getElementById("app-status-text");
+  const dot = document.getElementById("app-status-dot");
+  if (!textElement || !dot) {
+    return;
+  }
+
+  textElement.textContent = text;
+  dot.className = `status-dot ${state}`;
 }
 
 function empty(element, text) {
@@ -26,6 +40,9 @@ function item(title, details) {
   heading.textContent = title;
   article.appendChild(heading);
   details.forEach((detail) => {
+    if (!detail) {
+      return;
+    }
     const line = document.createElement("span");
     line.textContent = detail;
     article.appendChild(line);
@@ -57,6 +74,7 @@ function approximateSize(bytes) {
 }
 
 async function loadStatus() {
+  setAppStatus("Iniciando servidor...");
   const status = await invoke("get_status");
   document.getElementById("service-name").textContent = status.service;
   document.getElementById("service-version").textContent = status.version;
@@ -67,9 +85,11 @@ async function loadStatus() {
   const indicator = document.getElementById("service-indicator");
   indicator.textContent = status.active ? "Activo" : "No disponible";
   indicator.className = `badge ${status.active ? "active" : "pending"}`;
+  setAppStatus("Servicio local operativo", "active");
 }
 
 async function loadConfig() {
+  setAppStatus("Cargando configuracion...");
   config = await invoke("get_config");
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
 }
@@ -92,86 +112,132 @@ async function saveConfig() {
   window.setTimeout(() => { message.textContent = ""; }, 2500);
 }
 
+async function restartServer() {
+  setAppStatus("Reiniciando servidor...");
+  await invoke("restart_server");
+  await loadStatus();
+}
+
 async function loadTokens() {
   const container = document.getElementById("tokens");
-  const tokens = await invoke("list_tokens");
+  setAppStatus("Detectando token...");
+  tokens = await invoke("list_tokens");
   if (!tokens.length) {
     empty(container, "No se detectaron slots.");
+    setAppStatus("No se detectaron tokens", "error");
     return;
   }
   showItems(container, tokens.map((token) => item(
-    token.label || "Slot sin token",
+    tokenName(token),
     [
       `Slot ${token.slot_id} - ${token.token_present ? "presente" : "ausente"}`,
       `${token.manufacturer || ""} ${token.model || ""}`.trim(),
+      token.serial_number ? `Serial: ${token.serial_number}` : "",
     ],
   )));
+  setAppStatus("Token detectado", "active");
 }
 
 async function loadCertificates() {
   const container = document.getElementById("certificates");
-  certificates = await invoke("list_certificates");
+  setAppStatus("Cargando certificados...");
+  const [loadedTokens, loadedCertificates] = await Promise.all([
+    invoke("list_tokens"),
+    invoke("list_certificates"),
+  ]);
+  tokens = loadedTokens;
+  certificates = loadedCertificates;
   certificatesLoaded = true;
   if (!certificates.length) {
     empty(container, "No se encontraron certificados.");
-    populateModalCertificates();
+    populateSigningCertificates();
+    setAppStatus("No se encontraron certificados", "error");
     return;
   }
   showItems(container, certificates.map((certificate) => item(
-    certificate.label || "Certificado",
+    certificateTitle(certificate),
     [
       `Subject: ${certificate.subject || "-"}`,
       `Issuer: ${certificate.issuer || "-"}`,
       `Vence: ${certificate.not_after || "-"}`,
+      `Slot: ${certificate.slot_id}`,
+      certificate.id ? `ID: ${certificate.id}` : "",
     ],
   )));
-  populateModalCertificates();
+  populateSigningCertificates();
+  setAppStatus("Certificados cargados", "active");
 }
 
-function closeSigningModal() {
-  activeModalSession = null;
-  clearModalPin();
-  clearModalError();
-  document.getElementById("sign-modal-backdrop").classList.add("hidden");
+function tokenName(token) {
+  const label = token.label || "Token";
+  const serial = token.serial_number ? ` - serial ${token.serial_number}` : "";
+  return `${label}${serial}`;
+}
+
+function tokenForSlot(slotId) {
+  return tokens.find((token) => token.slot_id === slotId);
+}
+
+function certificateTitle(certificate) {
+  return certificate.subject || certificate.label || "Certificado";
+}
+
+function certificateDetails(certificate) {
+  return [
+    certificateTitle(certificate),
+    `Issuer: ${certificate.issuer || "-"}`,
+    `Vence: ${certificate.not_after || "-"}`,
+    `Slot: ${certificate.slot_id}`,
+    `ID: ${certificate.id || "-"}`,
+  ].join(" | ");
+}
+
+function clearSigningForm() {
+  activeSigningSession = null;
+  clearPin();
+  clearSigningError();
   document.getElementById("modal-files").replaceChildren();
+  document.getElementById("modal-session-id").textContent = "-";
+  document.getElementById("modal-format").textContent = "-";
+  document.getElementById("modal-language").textContent = "-";
+  document.getElementById("modal-status").textContent = "esperando";
+  setSigningProgress("Esperando firma", false);
 }
 
-async function openSigningModal(session) {
-  activeModalSession = session;
-  displayedSessionIds.add(session.id);
+async function showSigningSession(session) {
+  activeSigningSession = session;
   document.getElementById("modal-session-id").textContent = session.id;
   document.getElementById("modal-format").textContent = session.format;
   document.getElementById("modal-language").textContent = session.language || "-";
-  document.getElementById("modal-status").textContent = "pendiente";
+  document.getElementById("modal-status").textContent = session.status;
   showItems(document.getElementById("modal-files"), session.files.map((file) => item(
     file.name,
     [`Tamano: ${approximateSize(file.approximate_size_bytes)}`],
   )));
-  clearModalPin();
-  clearModalError();
-  populateModalCertificates();
-  document.getElementById("sign-modal-backdrop").classList.remove("hidden");
+  clearPin();
+  clearSigningError();
+  setSigningProgress("Esperando firma", false);
+  populateSigningCertificates();
   if (!certificatesLoaded) {
     await loadCertificates();
   }
-  updateModalApprovalState();
+  updateApprovalState();
   document.getElementById("modal-pin").focus();
 }
 
 async function resolveSigningSession(action, session) {
-  const resolvingActiveModal = activeModalSession && activeModalSession.id === session.id;
-  const modalApprove = document.getElementById("modal-approve");
-  const modalReject = document.getElementById("modal-reject");
-  if (resolvingActiveModal) {
-    modalApprove.disabled = true;
-    modalReject.disabled = true;
-  }
+  const approve = document.getElementById("modal-approve");
+  const reject = document.getElementById("modal-reject");
+  approve.disabled = true;
+  reject.disabled = true;
   try {
     if (action === "approve") {
       const approval = selectedApprovalInput();
       if (!approval) {
         return;
       }
+      signingInProgress = true;
+      setSigningProgress("Firmando... no retire el token", true);
       try {
         await invoke("approve_signing_session", {
           sessionId: session.id,
@@ -179,22 +245,31 @@ async function resolveSigningSession(action, session) {
           certificateId: approval.certificateId,
           pin: approval.pin,
         });
+        setSigningProgress("Completando firma...", true);
+        clearPin();
+        clearSigningForm();
+        if (windowMode === "signing") {
+          await closeSigningWindow();
+        }
       } catch (error) {
-        showModalError(error);
+        clearPin();
+        showSigningError(error);
+        setSigningProgress("Error de firma", false);
         return;
       } finally {
-        clearModalPin();
+        signingInProgress = false;
       }
     } else {
       await invoke("reject_signing_session", { sessionId: session.id });
-    }
-    if (resolvingActiveModal) {
-      closeSigningModal();
+      clearSigningForm();
+      if (windowMode === "signing") {
+        await closeSigningWindow();
+      }
     }
     await loadSessions();
   } finally {
-    updateModalApprovalState();
-    modalReject.disabled = false;
+    updateApprovalState();
+    reject.disabled = false;
   }
 }
 
@@ -210,9 +285,9 @@ function sessionItem(session) {
   const actions = document.createElement("div");
   actions.className = "item-actions";
   actions.append(
-    button("Ver solicitud", "secondary", () => run(() => openSigningModal(session))),
+    button("Ver solicitud", "secondary", () => run(() => openSigningWindow())),
     button("Rechazar", "danger", () => run(() => resolveSigningSession("reject", session))),
-    button("Aprobar", "", () => run(() => openSigningModal(session))),
+    button("Aprobar", "", () => run(() => openSigningWindow())),
   );
   article.appendChild(actions);
   return article;
@@ -222,28 +297,46 @@ async function loadSessions() {
   const container = document.getElementById("sessions");
   const sessions = await invoke("list_signing_sessions");
   const pending = sessions.filter((session) => session.status === "pending");
-  if (activeModalSession && !pending.some((session) => session.id === activeModalSession.id)) {
-    closeSigningModal();
-  }
-  if (!pending.length) {
-    empty(container, "Sin sesiones pendientes.");
+
+  if (windowMode === "main") {
+    if (!pending.length) {
+      empty(container, "Sin sesiones pendientes.");
+      return;
+    }
+    showItems(container, pending.map(sessionItem));
+    setAppStatus("Esperando firma", "pending");
+    await openSigningWindow();
     return;
   }
-  showItems(container, pending.map(sessionItem));
-  if (!activeModalSession) {
-    const newSession = pending.find((session) => !displayedSessionIds.has(session.id));
-    if (newSession) {
-      await openSigningModal(newSession);
-    }
+
+  if (!pending.length) {
+    clearSigningForm();
+    return;
+  }
+
+  const nextSession = activeSigningSession
+    ? pending.find((session) => session.id === activeSigningSession.id) || pending[0]
+    : pending[0];
+  if (!activeSigningSession || activeSigningSession.id !== nextSession.id) {
+    await showSigningSession(nextSession);
   }
 }
 
-function populateModalCertificates() {
+async function openSigningWindow() {
+  await invoke("show_signing_window");
+}
+
+async function closeSigningWindow() {
+  await invoke("hide_signing_window");
+}
+
+function populateSigningCertificates() {
   const select = document.getElementById("modal-certificate");
   if (!select) {
     return;
   }
 
+  const selectedValue = select.value;
   const options = certificates.filter((certificate) => certificate.id);
   select.replaceChildren();
   if (!options.length) {
@@ -254,37 +347,57 @@ function populateModalCertificates() {
       : "Cargando certificados...";
     select.appendChild(option);
     select.disabled = true;
-    updateModalApprovalState();
+    updateApprovalState();
     return;
   }
 
   select.disabled = false;
-  options.forEach((certificate) => {
-    const option = document.createElement("option");
-    option.value = `${certificate.slot_id}:${certificate.id}`;
-    option.textContent = [
-      certificate.subject || certificate.label || "Certificado",
-      `Issuer: ${certificate.issuer || "-"}`,
-      `Vence: ${certificate.not_after || "-"}`,
-      `Slot: ${certificate.slot_id}`,
-      `ID: ${certificate.id}`,
-    ].join(" | ");
-    select.appendChild(option);
+  const certificatesBySlot = groupBySlot(options);
+
+  certificatesBySlot.forEach((slotCertificates, slotId) => {
+    const group = document.createElement("optgroup");
+    const token = tokenForSlot(Number(slotId));
+    group.label = token
+      ? `${tokenName(token)} - slot ${slotId}`
+      : `Token slot ${slotId}`;
+    slotCertificates.forEach((certificate) => {
+      const option = document.createElement("option");
+      option.value = `${certificate.slot_id}:${certificate.id}`;
+      option.textContent = certificateDetails(certificate);
+      group.appendChild(option);
+    });
+    select.appendChild(group);
   });
-  updateModalApprovalState();
+
+  if (options.length === 1) {
+    select.value = `${options[0].slot_id}:${options[0].id}`;
+  } else if ([...select.options].some((option) => option.value === selectedValue)) {
+    select.value = selectedValue;
+  }
+  updateApprovalState();
+}
+
+function groupBySlot(items) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const group = groups.get(item.slot_id) || [];
+    group.push(item);
+    groups.set(item.slot_id, group);
+  });
+  return groups;
 }
 
 function selectedApprovalInput() {
   const certificateValue = document.getElementById("modal-certificate").value;
   const pin = document.getElementById("modal-pin").value;
   if (!certificateValue) {
-    showModalError("Missing certificate selection");
-    updateModalApprovalState();
+    showSigningError("Missing certificate selection");
+    updateApprovalState();
     return null;
   }
   if (!pin) {
-    showModalError("Missing PIN");
-    updateModalApprovalState();
+    showSigningError("Missing PIN");
+    updateApprovalState();
     return null;
   }
 
@@ -296,75 +409,109 @@ function selectedApprovalInput() {
   };
 }
 
-function updateModalApprovalState() {
+function updateApprovalState() {
   const approve = document.getElementById("modal-approve");
   const certificateValue = document.getElementById("modal-certificate").value;
   const pin = document.getElementById("modal-pin").value;
-  approve.disabled = !certificateValue || !pin;
+  approve.disabled = signingInProgress || !certificateValue || !pin;
 }
 
-function showModalError(error) {
+function setSigningProgress(text, active) {
+  const progress = document.getElementById("signing-progress");
+  const progressText = document.getElementById("signing-progress-text");
+  progressText.textContent = text;
+  progress.classList.toggle("hidden", !active);
+}
+
+function showSigningError(error) {
   const message = document.getElementById("modal-sign-error");
   message.textContent = String(error);
   message.classList.remove("hidden");
 }
 
-function clearModalError() {
+function clearSigningError() {
   const message = document.getElementById("modal-sign-error");
   message.textContent = "";
   message.classList.add("hidden");
 }
 
-function clearModalPin() {
+function clearPin() {
   document.getElementById("modal-pin").value = "";
-  updateModalApprovalState();
+  updateApprovalState();
 }
 
 async function run(task) {
   try {
     await task();
   } catch (error) {
-    showError(error);
+    if (windowMode === "signing") {
+      showSigningError(error);
+      setSigningProgress("Error de firma", false);
+    } else {
+      showError(error);
+      setAppStatus("Error", "error");
+    }
   }
 }
 
-document.getElementById("refresh-all").addEventListener("click", () => run(async () => {
-  await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
-}));
-document.getElementById("choose-library").addEventListener("click", () => run(selectLibrary));
-document.getElementById("save-config").addEventListener("click", () => run(saveConfig));
-document.getElementById("test-token").addEventListener("click", () => run(loadTokens));
-document.getElementById("reload-tokens").addEventListener("click", () => run(loadTokens));
-document.getElementById("reload-certificates").addEventListener("click", () => run(loadCertificates));
-document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
-document.getElementById("close-sign-modal").addEventListener("click", closeSigningModal);
-document.getElementById("modal-certificate").addEventListener("change", () => {
-  clearModalError();
-  updateModalApprovalState();
-});
-document.getElementById("modal-pin").addEventListener("input", () => {
-  clearModalError();
-  updateModalApprovalState();
-});
-document.getElementById("modal-approve").addEventListener("click", () => {
-  if (activeModalSession) {
-    run(() => resolveSigningSession("approve", activeModalSession));
+function configureWindowMode() {
+  document.body.dataset.window = windowMode;
+  if (windowMode === "signing") {
+    document.getElementById("signing-view").classList.remove("hidden");
   }
-});
-document.getElementById("modal-reject").addEventListener("click", () => {
-  if (activeModalSession) {
-    run(() => resolveSigningSession("reject", activeModalSession));
-  }
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && activeModalSession) {
-    closeSigningModal();
-  }
-});
+}
 
-run(async () => {
-  await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
-});
+function bindEvents() {
+  if (windowMode === "main") {
+    document.getElementById("refresh-all").addEventListener("click", () => run(async () => {
+      await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
+    }));
+    document.getElementById("choose-library").addEventListener("click", () => run(selectLibrary));
+    document.getElementById("save-config").addEventListener("click", () => run(saveConfig));
+    document.getElementById("test-token").addEventListener("click", () => run(loadTokens));
+    document.getElementById("reload-tokens").addEventListener("click", () => run(loadTokens));
+    document.getElementById("reload-certificates").addEventListener("click", () => run(loadCertificates));
+    document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
+  }
+
+  document.getElementById("close-sign-modal").addEventListener("click", () => run(closeSigningWindow));
+  document.getElementById("modal-certificate").addEventListener("change", () => {
+    clearSigningError();
+    updateApprovalState();
+  });
+  document.getElementById("modal-pin").addEventListener("input", () => {
+    clearSigningError();
+    updateApprovalState();
+  });
+  document.getElementById("modal-approve").addEventListener("click", () => {
+    if (activeSigningSession) {
+      run(() => resolveSigningSession("approve", activeSigningSession));
+    }
+  });
+  document.getElementById("modal-reject").addEventListener("click", () => {
+    if (activeSigningSession) {
+      run(() => resolveSigningSession("reject", activeSigningSession));
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && windowMode === "signing") {
+      run(closeSigningWindow);
+    }
+  });
+}
+
+async function bootstrap() {
+  configureWindowMode();
+  bindEvents();
+  if (windowMode === "main") {
+    await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
+  } else {
+    clearSigningForm();
+    await loadSessions();
+  }
+}
+
+run(bootstrap);
 
 window.setInterval(() => {
   if (loadingSessions) {

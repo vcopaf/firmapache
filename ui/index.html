@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="header">
+  <header id="main-header" class="header">
     <div>
       <p class="eyebrow">Servicio local de firma digital</p>
       <h1>MiniFirmador</h1>
@@ -15,7 +15,14 @@
     <button id="refresh-all" class="secondary">Actualizar</button>
   </header>
 
-  <main class="layout">
+  <main id="main-view" class="layout">
+    <section class="card status-line-card">
+      <div class="status-line">
+        <span id="app-status-dot" class="status-dot"></span>
+        <span id="app-status-text">Iniciando servidor...</span>
+      </div>
+    </section>
+
     <section class="card status-card">
       <div class="card-title">
         <h2>Estado</h2>
@@ -73,8 +80,8 @@
     </section>
   </main>
 
-  <div id="sign-modal-backdrop" class="modal-backdrop hidden">
-    <section class="sign-modal" role="dialog" aria-modal="true" aria-labelledby="sign-modal-title">
+  <main id="signing-view" class="signing-view hidden">
+    <section class="sign-modal signing-card" aria-labelledby="sign-modal-title">
       <div class="card-title modal-title">
         <div>
           <p class="eyebrow modal-eyebrow">Autorizacion local</p>
@@ -98,12 +105,16 @@
       </div>
       <p id="modal-sign-error" class="modal-error hidden" role="alert"></p>
       <p class="quiet">El PIN se usa solo para esta aprobacion. No se guarda ni se envia al endpoint publico <code>POST /sign</code>.</p>
+      <div class="signing-progress hidden" id="signing-progress">
+        <span class="spinner"></span>
+        <span id="signing-progress-text">Firmando... no retire el token</span>
+      </div>
       <div class="modal-actions">
         <button id="modal-reject" class="danger">Rechazar</button>
         <button id="modal-approve">Aprobar</button>
       </div>
     </section>
-  </div>
+  </main>
 
   <div id="error-banner" class="error-banner hidden" role="alert"></div>
   <script src="app.js"></script>

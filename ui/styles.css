@@ -64,8 +64,36 @@ h3 {
 
 .status-card,
 .config-card,
-.sessions-card {
+.sessions-card,
+.status-line-card {
   grid-column: span 2;
+}
+
+.status-line-card {
+  padding: 14px 20px;
+}
+
+.status-line {
+  align-items: center;
+  color: #536660;
+  display: flex;
+  gap: 10px;
+}
+
+.status-dot {
+  background: #e6b84c;
+  border-radius: 99px;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.status-dot.active {
+  background: #28a35d;
+}
+
+.status-dot.error {
+  background: #a93838;
 }
 
 .card-title {
@@ -230,15 +258,10 @@ button:disabled {
   padding: 7px 12px;
 }
 
-.modal-backdrop {
-  align-items: center;
-  background: rgba(16, 35, 31, .52);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: 28px;
-  position: fixed;
-  z-index: 5;
+.signing-view {
+  background: #f5f4ef;
+  min-height: 100vh;
+  padding: 24px;
 }
 
 .sign-modal {
@@ -250,6 +273,10 @@ button:disabled {
   overflow: auto;
   padding: 22px;
   width: 100%;
+}
+
+.signing-card {
+  margin: 0 auto;
 }
 
 .modal-title {
@@ -309,6 +336,34 @@ button:disabled {
   padding: 10px 12px;
 }
 
+.signing-progress {
+  align-items: center;
+  background: #e8eee9;
+  border-radius: 8px;
+  color: #194f43;
+  display: flex;
+  font-weight: 600;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 12px;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+  border: 3px solid rgba(23, 103, 83, .18);
+  border-top-color: #176753;
+  border-radius: 999px;
+  display: inline-block;
+  height: 18px;
+  width: 18px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;
@@ -329,6 +384,15 @@ button:disabled {
 
 .hidden {
   display: none !important;
+}
+
+body[data-window="signing"] #main-header,
+body[data-window="signing"] #main-view {
+  display: none;
+}
+
+body[data-window="main"] #signing-view {
+  display: none;
 }
 
 @media (max-width: 800px) {
