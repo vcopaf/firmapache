@@ -67,6 +67,7 @@ h3 {
 .status-card,
 .config-card,
 .sessions-card,
+.manual-sign-card,
 .status-line-card {
   grid-column: span 2;
 }
@@ -329,6 +330,32 @@ body[data-window="signing"] #signing-view {
   overflow-wrap: anywhere;
 }
 
+.manual-intro {
+  margin-bottom: 14px;
+}
+
+.manual-file-summary {
+  background: #f7f6f1;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 2fr 1fr 1fr;
+  margin: 14px 0 0;
+  padding: 14px;
+}
+
+.manual-file-summary dt {
+  color: #687872;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.manual-file-summary dd {
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .modal-form {
   display: grid;
   gap: 9px;
@@ -418,5 +445,9 @@ body[data-window="main"] #signing-view {
 
   .summary {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .manual-file-summary {
+    grid-template-columns: 1fr;
   }
 }

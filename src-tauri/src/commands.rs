@@ -1,6 +1,7 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
     config::AppConfig,
-    core::pkcs11::provider,
+    core::{pkcs11::provider, signing::jws},
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
@@ -9,7 +10,11 @@ use mini_firmador::{
     server::{self, AppState},
 };
 use serde::Serialize;
-use std::sync::Mutex;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
@@ -52,6 +57,26 @@ pub struct SigningSessionView {
 pub struct SigningSessionFileView {
     name: String,
     approximate_size_bytes: usize,
+}
+
+#[derive(Serialize)]
+pub struct SelectedFileToSign {
+    path: String,
+    name: String,
+    size_bytes: u64,
+    detected_format: String,
+}
+
+#[derive(Serialize)]
+pub struct ManualSignResponse {
+    jws_base64: String,
+    suggested_file_name: String,
+}
+
+#[derive(Serialize)]
+pub struct SaveSignedFileResponse {
+    saved: bool,
+    path: Option<String>,
 }
 
 #[tauri::command]
@@ -103,6 +128,113 @@ pub async fn select_pkcs11_library(app: AppHandle) -> Result<Option<String>, Str
     }
 
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn select_file_to_sign(app: AppHandle) -> Result<Option<SelectedFileToSign>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo leer informacion del archivo: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Seleccione un archivo valido".to_owned());
+    }
+
+    Ok(Some(SelectedFileToSign {
+        name: file_name(&path),
+        detected_format: detected_format(&path),
+        path: path.to_string_lossy().into_owned(),
+        size_bytes: metadata.len(),
+    }))
+}
+
+#[tauri::command]
+pub async fn sign_file_as_jws(
+    state: State<'_, AppState>,
+    path: String,
+    slot_id: u64,
+    certificate_id: String,
+    pin: String,
+) -> Result<ManualSignResponse, String> {
+    if path.trim().is_empty() {
+        return Err("archivo no seleccionado".to_owned());
+    }
+    if certificate_id.trim().is_empty() {
+        return Err("certificado no seleccionado".to_owned());
+    }
+    if pin.is_empty() {
+        return Err("PIN vacio".to_owned());
+    }
+
+    let config = current_config(&state)?;
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let payload = fs::read(&path).map_err(|error| format!("error leyendo archivo: {error}"))?;
+        let jws_base64 = jws::sign_payload_base64(
+            &config,
+            &payload,
+            ApproveSigningSessionInput {
+                slot_id,
+                certificate_id,
+                pin,
+            },
+        )
+        .map_err(|error| format!("error firmando: {error}"))?;
+
+        Ok(ManualSignResponse {
+            jws_base64,
+            suggested_file_name: suggested_jws_file_name(&path),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn save_signed_file(
+    app: AppHandle,
+    jws_base64: String,
+    suggested_file_name: String,
+) -> Result<SaveSignedFileResponse, String> {
+    if jws_base64.trim().is_empty() {
+        return Err("resultado JWS vacio".to_owned());
+    }
+    let decoded = STANDARD
+        .decode(jws_base64.as_bytes())
+        .map_err(|_| "resultado JWS no es Base64 valido".to_owned())?;
+
+    let destination = app
+        .dialog()
+        .file()
+        .add_filter("JWS", &["jws"])
+        .add_filter("JSON firmado", &["json"])
+        .set_file_name(suggested_file_name)
+        .blocking_save_file();
+    let Some(destination) = destination else {
+        return Ok(SaveSignedFileResponse {
+            saved: false,
+            path: None,
+        });
+    };
+    let path = destination
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta de guardado: {error}"))?;
+    fs::write(&path, decoded).map_err(|error| format!("error guardando archivo: {error}"))?;
+
+    Ok(SaveSignedFileResponse {
+        saved: true,
+        path: Some(path.to_string_lossy().into_owned()),
+    })
 }
 
 #[tauri::command]
@@ -208,6 +340,29 @@ pub fn reject_signing_session(
 
 fn current_config(state: &State<'_, AppState>) -> Result<AppConfig, String> {
     state.config().map_err(|error| error.to_string())
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("archivo")
+        .to_owned()
+}
+
+fn detected_format(path: &Path) -> String {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .unwrap_or_else(|| "desconocido".to_owned())
+}
+
+fn suggested_jws_file_name(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("firmado");
+    format!("{stem}.jws")
 }
 
 pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<(), String> {

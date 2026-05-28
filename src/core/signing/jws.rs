@@ -51,37 +51,39 @@ pub fn sign_files(
     let files = files
         .iter()
         .map(|file| {
-            sign_file(config, file, &certificate_der_base64, &input).map(|jws_compact| {
-                CompatibleOutputFile {
+            let payload = STANDARD
+                .decode(file.content_base64.as_bytes())
+                .map_err(|_| JwsSignError::InvalidBase64)?;
+            sign_payload_compact(config, &payload, &certificate_der_base64, &input).map(
+                |jws_compact| CompatibleOutputFile {
                     base64: STANDARD.encode(jws_compact.as_bytes()),
                     name: file.name.clone(),
-                }
-            })
+                },
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(CompatibleSignResponse { files })
 }
 
-fn validate_signing_input(input: &ApproveSigningSessionInput) -> Result<(), JwsSignError> {
-    if input.certificate_id.trim().is_empty() {
-        return Err(JwsSignError::MissingCertificateSelection);
-    }
-    if input.pin.is_empty() {
-        return Err(JwsSignError::MissingPin);
-    }
-    Ok(())
+pub fn sign_payload_base64(
+    config: &AppConfig,
+    payload: &[u8],
+    input: ApproveSigningSessionInput,
+) -> Result<String, JwsSignError> {
+    validate_signing_input(&input)?;
+    let certificate_der_base64 =
+        certificate_der_base64(config, input.slot_id, &input.certificate_id)?;
+    sign_payload_compact(config, payload, &certificate_der_base64, &input)
+        .map(|jws_compact| STANDARD.encode(jws_compact.as_bytes()))
 }
 
-fn sign_file(
+fn sign_payload_compact(
     config: &AppConfig,
-    file: &SigningSessionFile,
+    payload: &[u8],
     certificate_der_base64: &str,
     input: &ApproveSigningSessionInput,
 ) -> Result<String, JwsSignError> {
-    let payload = STANDARD
-        .decode(file.content_base64.as_bytes())
-        .map_err(|_| JwsSignError::InvalidBase64)?;
     let header = JwsHeader {
         alg: "RS256",
         typ: "JWT",
@@ -108,6 +110,16 @@ fn sign_file(
     let encoded_signature = URL_SAFE_NO_PAD.encode(signature);
 
     Ok(format!("{signing_input}.{encoded_signature}"))
+}
+
+fn validate_signing_input(input: &ApproveSigningSessionInput) -> Result<(), JwsSignError> {
+    if input.certificate_id.trim().is_empty() {
+        return Err(JwsSignError::MissingCertificateSelection);
+    }
+    if input.pin.is_empty() {
+        return Err(JwsSignError::MissingPin);
+    }
+    Ok(())
 }
 
 fn certificate_der_base64(

@@ -8,6 +8,9 @@ let certificates = [];
 let tokens = [];
 let certificatesLoaded = false;
 let signingInProgress = false;
+let manualFile = null;
+let manualResult = null;
+let manualSigningInProgress = false;
 const windowMode = currentWindow.label === "signing" ? "signing" : "main";
 
 function showError(error) {
@@ -151,6 +154,7 @@ async function loadCertificates() {
   if (!certificates.length) {
     empty(container, "No se encontraron certificados.");
     populateSigningCertificates();
+    populateManualCertificates();
     setAppStatus("No se encontraron certificados", "error");
     return;
   }
@@ -165,6 +169,7 @@ async function loadCertificates() {
     ],
   )));
   populateSigningCertificates();
+  populateManualCertificates();
   setAppStatus("Certificados cargados", "active");
 }
 
@@ -331,7 +336,15 @@ async function closeSigningWindow() {
 }
 
 function populateSigningCertificates() {
-  const select = document.getElementById("modal-certificate");
+  populateCertificateSelect("modal-certificate", updateApprovalState);
+}
+
+function populateManualCertificates() {
+  populateCertificateSelect("manual-certificate", updateManualState);
+}
+
+function populateCertificateSelect(selectId, onUpdate) {
+  const select = document.getElementById(selectId);
   if (!select) {
     return;
   }
@@ -347,7 +360,7 @@ function populateSigningCertificates() {
       : "Cargando certificados...";
     select.appendChild(option);
     select.disabled = true;
-    updateApprovalState();
+    onUpdate();
     return;
   }
 
@@ -374,7 +387,7 @@ function populateSigningCertificates() {
   } else if ([...select.options].some((option) => option.value === selectedValue)) {
     select.value = selectedValue;
   }
-  updateApprovalState();
+  onUpdate();
 }
 
 function groupBySlot(items) {
@@ -414,6 +427,124 @@ function updateApprovalState() {
   const certificateValue = document.getElementById("modal-certificate").value;
   const pin = document.getElementById("modal-pin").value;
   approve.disabled = signingInProgress || !certificateValue || !pin;
+}
+
+async function selectManualFile() {
+  const selected = await invoke("select_file_to_sign");
+  if (!selected) {
+    return;
+  }
+  manualFile = selected;
+  manualResult = null;
+  clearManualError();
+  document.getElementById("manual-file-name").textContent = selected.name;
+  document.getElementById("manual-file-size").textContent = approximateSize(selected.size_bytes);
+  document.getElementById("manual-file-format").textContent = selected.detected_format;
+  document.getElementById("manual-save-result").disabled = true;
+  document.getElementById("manual-sign-message").textContent = "";
+  if (!certificatesLoaded) {
+    await loadCertificates();
+  }
+  updateManualState();
+}
+
+async function signManualFile() {
+  const input = selectedManualApprovalInput();
+  if (!input) {
+    return;
+  }
+
+  manualSigningInProgress = true;
+  updateManualState();
+  setManualProgress(true);
+  clearManualError();
+  try {
+    manualResult = await invoke("sign_file_as_jws", {
+      path: manualFile.path,
+      slotId: input.slotId,
+      certificateId: input.certificateId,
+      pin: input.pin,
+    });
+    document.getElementById("manual-sign-message").textContent = "Archivo firmado";
+    document.getElementById("manual-save-result").disabled = false;
+  } catch (error) {
+    manualResult = null;
+    showManualError(error);
+  } finally {
+    clearManualPin();
+    manualSigningInProgress = false;
+    setManualProgress(false);
+    updateManualState();
+  }
+}
+
+async function saveManualResult() {
+  if (!manualResult) {
+    showManualError("No hay resultado firmado para guardar");
+    return;
+  }
+  const response = await invoke("save_signed_file", {
+    jwsBase64: manualResult.jws_base64,
+    suggestedFileName: manualResult.suggested_file_name,
+  });
+  if (response.saved) {
+    document.getElementById("manual-sign-message").textContent = `Guardado: ${response.path}`;
+  }
+}
+
+function selectedManualApprovalInput() {
+  if (!manualFile) {
+    showManualError("archivo no seleccionado");
+    updateManualState();
+    return null;
+  }
+  const certificateValue = document.getElementById("manual-certificate").value;
+  const pin = document.getElementById("manual-pin").value;
+  if (!certificateValue) {
+    showManualError("certificado no seleccionado");
+    updateManualState();
+    return null;
+  }
+  if (!pin) {
+    showManualError("PIN vacio");
+    updateManualState();
+    return null;
+  }
+
+  const [slotId, certificateId] = certificateValue.split(":");
+  return {
+    slotId: Number(slotId),
+    certificateId,
+    pin,
+  };
+}
+
+function updateManualState() {
+  const signButton = document.getElementById("manual-sign-file");
+  const certificateValue = document.getElementById("manual-certificate").value;
+  const pin = document.getElementById("manual-pin").value;
+  signButton.disabled = manualSigningInProgress || !manualFile || !certificateValue || !pin;
+}
+
+function setManualProgress(active) {
+  document.getElementById("manual-sign-progress").classList.toggle("hidden", !active);
+}
+
+function showManualError(error) {
+  const message = document.getElementById("manual-sign-error");
+  message.textContent = String(error);
+  message.classList.remove("hidden");
+}
+
+function clearManualError() {
+  const message = document.getElementById("manual-sign-error");
+  message.textContent = "";
+  message.classList.add("hidden");
+}
+
+function clearManualPin() {
+  document.getElementById("manual-pin").value = "";
+  updateManualState();
 }
 
 function setSigningProgress(text, active) {
@@ -472,6 +603,17 @@ function bindEvents() {
     document.getElementById("reload-tokens").addEventListener("click", () => run(loadTokens));
     document.getElementById("reload-certificates").addEventListener("click", () => run(loadCertificates));
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
+    document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
+    document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
+    document.getElementById("manual-save-result").addEventListener("click", () => run(saveManualResult));
+    document.getElementById("manual-certificate").addEventListener("change", () => {
+      clearManualError();
+      updateManualState();
+    });
+    document.getElementById("manual-pin").addEventListener("input", () => {
+      clearManualError();
+      updateManualState();
+    });
   }
 
   document.getElementById("close-sign-modal").addEventListener("click", () => run(closeSigningWindow));
@@ -504,7 +646,7 @@ async function bootstrap() {
   configureWindowMode();
   bindEvents();
   if (windowMode === "main") {
-    await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
+    await Promise.all([loadStatus(), loadConfig(), loadCertificates(), loadSessions()]);
   } else {
     clearSigningForm();
     await loadSessions();

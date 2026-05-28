@@ -70,6 +70,37 @@
       <div id="certificates" class="list empty">Sin consulta.</div>
     </section>
 
+    <section class="card manual-sign-card">
+      <div class="card-title">
+        <h2>Firma manual</h2>
+        <span id="manual-sign-message" class="quiet"></span>
+      </div>
+      <p class="quiet manual-intro">Firme un archivo JSON local como JWS compact. PDF aun no esta implementado.</p>
+      <div class="button-row">
+        <button id="manual-select-file" class="secondary">Seleccionar archivo</button>
+      </div>
+      <dl class="manual-file-summary">
+        <div><dt>Archivo</dt><dd id="manual-file-name">Sin archivo seleccionado</dd></div>
+        <div><dt>Tamano</dt><dd id="manual-file-size">-</dd></div>
+        <div><dt>Formato detectado</dt><dd id="manual-file-format">-</dd></div>
+      </dl>
+      <div class="modal-form">
+        <label for="manual-certificate">Certificado para firmar</label>
+        <select id="manual-certificate"></select>
+        <label for="manual-pin">PIN del token</label>
+        <input id="manual-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+      </div>
+      <p id="manual-sign-error" class="modal-error hidden" role="alert"></p>
+      <div class="signing-progress hidden" id="manual-sign-progress">
+        <span class="spinner"></span>
+        <span>Firmando archivo... no retire el token</span>
+      </div>
+      <div class="modal-actions">
+        <button id="manual-save-result" class="secondary" disabled>Guardar resultado</button>
+        <button id="manual-sign-file">Firmar</button>
+      </div>
+    </section>
+
     <section class="card sessions-card">
       <div class="card-title">
         <h2>Sesiones de firma</h2>

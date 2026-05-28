@@ -122,6 +122,7 @@ La ventana permite:
 - Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
 - Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
 - Consultar tokens y certificados publicos.
+- Firmar manualmente archivos JSON locales como JWS compact.
 - Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
   visualmente su flujo.
 
@@ -135,6 +136,27 @@ Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
 muestra estados de carga como `Firmando... no retire el token`, y deshabilita
 los botones mientras se completa la operacion. El PIN solo existe durante esa
 aprobacion y no se almacena.
+
+## Firma manual JSON/JWS
+
+La seccion **Firma manual** permite firmar un archivo local sin depender de una
+web externa:
+
+1. Abrir MiniFirmador con `cargo tauri dev`.
+2. En **Firma manual**, pulsar **Seleccionar archivo** y elegir un `.json`.
+3. Seleccionar el certificado.
+4. Escribir el PIN del token.
+5. Pulsar **Firmar**.
+6. Cuando termine, pulsar **Guardar resultado** para escribir un `.jws`.
+
+El archivo guardado contiene el JWS compact en texto:
+
+```text
+header.payload.signature
+```
+
+El PIN no se guarda ni se registra. PDF todavia no esta implementado; esta ruta
+manual firma bytes del archivo seleccionado como payload JWS.
 
 ## Consumo desde NextJS
 
