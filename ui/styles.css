@@ -10,7 +10,9 @@
 }
 
 body {
+  background: #f5f4ef;
   margin: 0;
+  min-height: 100vh;
 }
 
 .header {
@@ -259,24 +261,34 @@ button:disabled {
 }
 
 .signing-view {
-  background: #f5f4ef;
+  background: #fffefa;
   min-height: 100vh;
-  padding: 24px;
+  padding: 22px;
 }
 
-.sign-modal {
+.signing-form {
   background: #fffefa;
-  border-radius: 14px;
-  box-shadow: 0 22px 52px rgba(16, 35, 31, .24);
-  max-height: calc(100vh - 56px);
-  max-width: 650px;
-  overflow: auto;
-  padding: 22px;
+  min-height: calc(100vh - 44px);
+  overflow: visible;
   width: 100%;
 }
 
-.signing-card {
-  margin: 0 auto;
+body[data-window="signing"] {
+  background: #fffefa;
+}
+
+body[data-window="signing"]::before {
+  background: #fffefa;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
+}
+
+body[data-window="signing"] #signing-view {
+  position: relative;
+  z-index: 1;
 }
 
 .modal-title {
