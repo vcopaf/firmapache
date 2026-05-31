@@ -15,7 +15,7 @@ rcgen = "0.14"
 rsa = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
 thiserror = "2.0"
 tokio = { version = "1.45", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"

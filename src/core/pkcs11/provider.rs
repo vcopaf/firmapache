@@ -8,6 +8,7 @@ use cryptoki::{
     session::{Session, UserType},
     types::AuthPin,
 };
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tracing::{info, warn};
 use x509_parser::{parse_x509_certificate, time::ASN1Time};
@@ -20,6 +21,10 @@ use crate::{
 };
 
 const PKCS11_LIBRARY_ENV: &str = "MINI_FIRMADOR_PKCS11";
+const SHA256_DIGEST_INFO_PREFIX: [u8; 19] = [
+    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+    0x00, 0x04, 0x20,
+];
 
 const COMMON_PKCS11_LIBRARY_PATHS: [&str; 5] = [
     "/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0",
@@ -501,6 +506,95 @@ pub fn sign_hash(
     }
 }
 
+pub fn sign_rs256(
+    config: &AppConfig,
+    slot_id: u64,
+    certificate_id: String,
+    pin: String,
+    signing_input_bytes: &[u8],
+) -> Result<Vec<u8>, ProviderError> {
+    let started = Instant::now();
+    let selected_certificate_id = parse_certificate_id(&certificate_id)?;
+    let auth_pin = AuthPin::new(pin);
+
+    let _access_guard = PKCS11_ACCESS
+        .lock()
+        .map_err(|_| ProviderError::AccessLock)?;
+    let library_info = detect_pkcs11_library(config)?;
+    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
+    let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
+        path: library_path,
+        source,
+    })?;
+
+    pkcs11
+        .initialize(CInitializeArgs::OsThreads)
+        .map_err(ProviderError::Initialize)?;
+
+    let slot = pkcs11
+        .get_slots_with_token()
+        .map_err(ProviderError::ListTokens)?
+        .into_iter()
+        .find(|slot| slot.id() == slot_id)
+        .ok_or(ProviderError::SlotNotFound(slot_id))?;
+
+    let session = match pkcs11.open_rw_session(slot) {
+        Ok(session) => session,
+        Err(_) => pkcs11
+            .open_ro_session(slot)
+            .map_err(|source| ProviderError::OpenSession { slot_id, source })?,
+    };
+
+    session
+        .login(UserType::User, Some(&auth_pin))
+        .map_err(|_| ProviderError::LoginFailed)?;
+
+    let signing_result = (|| {
+        let private_key = find_private_key_for_certificate(&session, &selected_certificate_id)?;
+
+        match session.sign(&Mechanism::Sha256RsaPkcs, private_key, signing_input_bytes) {
+            Ok(signature) => {
+                info!(
+                    slot_id,
+                    signing_step = "sign_rs256",
+                    mechanism = "CKM_SHA256_RSA_PKCS",
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "PKCS#11 RS256 signature created"
+                );
+                Ok(signature)
+            }
+            Err(error) => {
+                warn!(
+                    slot_id,
+                    error = %error,
+                    signing_step = "sign_rs256",
+                    mechanism = "CKM_SHA256_RSA_PKCS",
+                    "PKCS#11 RS256 direct mechanism failed; trying DigestInfo fallback"
+                );
+                let digest_info = sha256_digest_info(signing_input_bytes);
+                let signature = session
+                    .sign(&Mechanism::RsaPkcs, private_key, &digest_info)
+                    .map_err(ProviderError::SignFailed)?;
+                info!(
+                    slot_id,
+                    signing_step = "sign_rs256",
+                    mechanism = "CKM_RSA_PKCS_DIGEST_INFO",
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "PKCS#11 RS256 signature created with DigestInfo fallback"
+                );
+                Ok(signature)
+            }
+        }
+    })();
+
+    let logout_result = session.logout().map_err(ProviderError::LogoutFailed);
+    match (signing_result, logout_result) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(signature), Ok(())) => Ok(signature),
+    }
+}
+
 fn find_private_key_for_certificate(
     session: &Session,
     certificate_id: &[u8],
@@ -593,6 +687,14 @@ fn parse_certificate_id(value: &str) -> Result<Vec<u8>, ProviderError> {
                 })
         })
         .collect()
+}
+
+fn sha256_digest_info(value: &[u8]) -> Vec<u8> {
+    let hash = Sha256::digest(value);
+    let mut digest_info = Vec::with_capacity(SHA256_DIGEST_INFO_PREFIX.len() + hash.len());
+    digest_info.extend_from_slice(&SHA256_DIGEST_INFO_PREFIX);
+    digest_info.extend_from_slice(&hash);
+    digest_info
 }
 
 fn format_certificate_time(value: ASN1Time) -> String {
