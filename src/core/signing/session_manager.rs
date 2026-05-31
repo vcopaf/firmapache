@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::Utc;
@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     config::AppConfig,
+    core::cache::TokenCertificateCache,
     models::{
         compatible::{CompatibleSignRequest, CompatibleSignResponse},
         signing::{
@@ -115,7 +116,9 @@ impl SigningSessionManager {
         id: Uuid,
         config: &AppConfig,
         input: ApproveSigningSessionInput,
+        cache: &TokenCertificateCache,
     ) -> Result<CompatibleSignResponse, SigningSessionError> {
+        let started = Instant::now();
         let session = {
             let sessions = self
                 .sessions
@@ -126,7 +129,17 @@ impl SigningSessionManager {
             state.session.clone()
         };
 
-        let response = jws::sign_files(config, &session.files, input)?;
+        let file_count = session.files.len();
+        let format = session.format.clone();
+        let response = jws::sign_files_with_cache(config, &session.files, input, cache)?;
+        info!(
+            session_id = %id,
+            %format,
+            file_count,
+            signing_step = "approve_signing_session",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "signing session approved with JWS"
+        );
         self.resolve_signed(id, response)
     }
 

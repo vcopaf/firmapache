@@ -122,6 +122,7 @@ La ventana permite:
 - Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
 - Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
 - Consultar tokens y certificados publicos.
+- Actualizar manualmente la cache de tokens/certificados.
 - Firmar manualmente archivos JSON locales como JWS compact.
 - Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
   visualmente su flujo.
@@ -137,17 +138,42 @@ muestra estados de carga como `Firmando... no retire el token`, y deshabilita
 los botones mientras se completa la operacion. El PIN solo existe durante esa
 aprobacion y no se almacena.
 
+## Cache de tokens y certificados
+
+MiniFirmador carga tokens y certificados en segundo plano al iniciar Tauri para
+que la ventana de firma abra rapido y no repita lecturas PKCS#11 innecesarias.
+La cache guarda solamente metadata publica:
+
+- tokens detectados;
+- certificados publicos;
+- DER publico del certificado en Base64;
+- hora de carga y driver PKCS#11 usado.
+
+No se cachea PIN, sesiones PKCS#11 logueadas, claves privadas ni contenido de
+archivos. El PIN se pide solo al firmar y se limpia despues de usarlo.
+
+La cache se invalida cuando cambia la configuracion del driver PKCS#11, cuando
+se pulsa **Actualizar tokens/certificados** o cuando falla una lectura durante
+la recarga. La UI muestra cantidad de tokens, cantidad de certificados, hora de
+ultima carga y driver cacheado.
+
+Los endpoints `GET /tokens` y `GET /certificates`, el modal de firma y la firma
+manual prefieren la cache. Si el certificado seleccionado no esta en cache, el
+core hace una recarga controlada como fallback antes de fallar.
+
 ## Firma manual JSON/JWS
 
 La seccion **Firma manual** permite firmar un archivo local sin depender de una
 web externa:
 
 1. Abrir MiniFirmador con `cargo tauri dev`.
-2. En **Firma manual**, pulsar **Seleccionar archivo** y elegir un `.json`.
-3. Seleccionar el certificado.
-4. Escribir el PIN del token.
-5. Pulsar **Firmar**.
-6. Cuando termine, pulsar **Guardar resultado** para escribir un `.jws`.
+2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
+   despues de abrir la app.
+3. En **Firma manual**, pulsar **Seleccionar archivo** y elegir un `.json`.
+4. Seleccionar el certificado.
+5. Escribir el PIN del token.
+6. Pulsar **Firmar**.
+7. Cuando termine, pulsar **Guardar resultado** para escribir un `.jws`.
 
 El archivo guardado contiene el JWS compact en texto:
 

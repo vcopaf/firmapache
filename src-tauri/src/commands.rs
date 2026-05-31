@@ -14,6 +14,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::Instant,
 };
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -77,6 +78,16 @@ pub struct ManualSignResponse {
 pub struct SaveSignedFileResponse {
     saved: bool,
     path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TokenCertificateCacheView {
+    tokens: Vec<TokenInfo>,
+    certificates: Vec<CertificateInfo>,
+    loaded_at: Option<String>,
+    pkcs11_library_path: Option<String>,
+    token_count: usize,
+    certificate_count: usize,
 }
 
 #[tauri::command]
@@ -177,10 +188,11 @@ pub async fn sign_file_as_jws(
     }
 
     let config = current_config(&state)?;
+    let cache = state.token_certificate_cache().clone();
     let path = PathBuf::from(path);
     tauri::async_runtime::spawn_blocking(move || {
         let payload = fs::read(&path).map_err(|error| format!("error leyendo archivo: {error}"))?;
-        let jws_base64 = jws::sign_payload_base64(
+        let jws_base64 = jws::sign_payload_base64_with_cache(
             &config,
             &payload,
             ApproveSigningSessionInput {
@@ -188,6 +200,7 @@ pub async fn sign_file_as_jws(
                 certificate_id,
                 pin,
             },
+            &cache,
         )
         .map_err(|error| format!("error firmando: {error}"))?;
 
@@ -239,20 +252,85 @@ pub async fn save_signed_file(
 
 #[tauri::command]
 pub async fn list_tokens(state: State<'_, AppState>) -> Result<Vec<TokenInfo>, String> {
+    let cache = state.token_certificate_cache().clone();
+    if cache
+        .snapshot()
+        .map_err(|error| error.to_string())?
+        .loaded_at
+        .is_some()
+    {
+        return cache.get_cached_tokens().map_err(|error| error.to_string());
+    }
+
     let config = current_config(&state)?;
-    tauri::async_runtime::spawn_blocking(move || provider::list_tokens(&config))
+    tauri::async_runtime::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
         .await
         .map_err(|error| error.to_string())?
+        .map(|state| state.tokens)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_certificates(state: State<'_, AppState>) -> Result<Vec<CertificateInfo>, String> {
+    let cache = state.token_certificate_cache().clone();
+    if cache
+        .snapshot()
+        .map_err(|error| error.to_string())?
+        .loaded_at
+        .is_some()
+    {
+        return cache
+            .get_cached_certificates()
+            .map_err(|error| error.to_string());
+    }
+
     let config = current_config(&state)?;
-    tauri::async_runtime::spawn_blocking(move || provider::list_certificates(&config))
+    tauri::async_runtime::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
+        .await
+        .map_err(|error| error.to_string())?
+        .map(|state| state.certificates)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_cached_tokens(state: State<'_, AppState>) -> Result<Vec<TokenInfo>, String> {
+    state
+        .token_certificate_cache()
+        .get_cached_tokens()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_cached_certificates(state: State<'_, AppState>) -> Result<Vec<CertificateInfo>, String> {
+    state
+        .token_certificate_cache()
+        .get_cached_certificates()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_token_certificate_cache(
+    state: State<'_, AppState>,
+) -> Result<TokenCertificateCacheView, String> {
+    token_certificate_cache_view(
+        state
+            .token_certificate_cache()
+            .snapshot()
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub async fn refresh_tokens_and_certificates(
+    state: State<'_, AppState>,
+) -> Result<TokenCertificateCacheView, String> {
+    let config = current_config(&state)?;
+    let cache = state.token_certificate_cache().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+        .and_then(token_certificate_cache_view)
 }
 
 #[tauri::command]
@@ -284,6 +362,8 @@ pub async fn approve_signing_session(
     let id = parse_session_id(&session_id)?;
     let config = current_config(&state)?;
     let manager = state.signing_sessions().clone();
+    let cache = state.token_certificate_cache().clone();
+    let started = Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
         manager.approve_with_jws(
             id,
@@ -293,10 +373,20 @@ pub async fn approve_signing_session(
                 certificate_id,
                 pin,
             },
+            &cache,
         )
     })
     .await
     .map_err(|error| error.to_string())?
+    .map(|response| {
+        tracing::info!(
+            session_id = %id,
+            signing_step = "approve_signing_session",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "Tauri approve_signing_session completed"
+        );
+        response
+    })
     .map_err(|error| error.to_string())
 }
 
@@ -380,6 +470,38 @@ pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<
         }
     }));
     Ok(())
+}
+
+pub fn warm_token_certificate_cache(state: AppState) {
+    tauri::async_runtime::spawn(async move {
+        let config = match state.config() {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(%error, "could not read configuration for token cache warmup");
+                return;
+            }
+        };
+        let cache = state.token_certificate_cache().clone();
+        match tauri::async_runtime::spawn_blocking(move || {
+            cache.refresh_tokens_and_certificates(&config)
+        })
+        .await
+        {
+            Ok(Ok(snapshot)) => {
+                tracing::info!(
+                    token_count = snapshot.tokens.len(),
+                    certificate_count = snapshot.certificates.len(),
+                    "token/certificate cache warmup completed"
+                );
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "token/certificate cache warmup failed");
+            }
+            Err(error) => {
+                tracing::warn!(%error, "token/certificate cache warmup task failed");
+            }
+        }
+    });
 }
 
 pub fn show_main_window_for_app(app: &AppHandle) -> Result<(), String> {
@@ -472,4 +594,17 @@ fn status_name(status: SigningSessionStatus) -> &'static str {
         SigningSessionStatus::Rejected => "rejected",
         SigningSessionStatus::Expired => "expired",
     }
+}
+
+fn token_certificate_cache_view(
+    state: mini_firmador::core::cache::TokenCertificateCacheState,
+) -> Result<TokenCertificateCacheView, String> {
+    Ok(TokenCertificateCacheView {
+        token_count: state.tokens.len(),
+        certificate_count: state.certificates.len(),
+        loaded_at: state.loaded_at.map(|loaded_at| loaded_at.to_rfc3339()),
+        pkcs11_library_path: state.pkcs11_library_path,
+        tokens: state.tokens,
+        certificates: state.certificates,
+    })
 }

@@ -17,6 +17,7 @@ fn main() {
             let state = AppState::new(config);
             let desktop_state = commands::DesktopState::new();
             commands::start_embedded_server(&desktop_state, state.clone())?;
+            commands::warm_token_certificate_cache(state.clone());
             app.manage(state);
             app.manage(desktop_state);
 
@@ -62,6 +63,10 @@ fn main() {
             commands::save_signed_file,
             commands::list_tokens,
             commands::list_certificates,
+            commands::get_cached_tokens,
+            commands::get_cached_certificates,
+            commands::get_token_certificate_cache,
+            commands::refresh_tokens_and_certificates,
             commands::list_signing_sessions,
             commands::approve_signing_session,
             commands::reject_signing_session,

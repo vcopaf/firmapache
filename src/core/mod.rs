@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod certificates;
 pub mod crypto;
 pub mod pkcs11;

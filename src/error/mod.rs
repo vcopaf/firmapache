@@ -9,8 +9,8 @@ use thiserror::Error;
 use crate::{
     config::ConfigError,
     core::{
-        crypto::verifier::VerifyError, pkcs11::provider::ProviderError, signing::jws::JwsSignError,
-        signing::session_manager::SigningSessionError,
+        cache::CacheError, crypto::verifier::VerifyError, pkcs11::provider::ProviderError,
+        signing::jws::JwsSignError, signing::session_manager::SigningSessionError,
     },
 };
 
@@ -24,6 +24,8 @@ pub enum AppError {
     Verify(#[from] VerifyError),
     #[error(transparent)]
     Config(#[from] ConfigError),
+    #[error(transparent)]
+    Cache(#[from] CacheError),
     #[error(transparent)]
     SigningSession(#[from] SigningSessionError),
     #[error("PKCS#11 task failed: {0}")]
@@ -86,6 +88,14 @@ impl IntoResponse for AppError {
             Self::Config(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "configuration operation failed".to_owned(),
+            ),
+            Self::Cache(CacheError::Provider(ProviderError::LibraryNotFound)) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PKCS#11 library not found".to_owned(),
+            ),
+            Self::Cache(error) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("token/certificate cache operation failed: {error}"),
             ),
             Self::SigningSession(SigningSessionError::Compatible(error)) => {
                 (StatusCode::BAD_REQUEST, error.to_string())

@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Pkcs11LibraryInfo {
     pub found: bool,
     pub path: Option<String>,
     pub source: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TokenInfo {
     pub slot_id: u64,
     pub token_present: bool,
@@ -17,7 +17,7 @@ pub struct TokenInfo {
     pub serial_number: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CertificateInfo {
     pub slot_id: u64,
     pub id: Option<String>,

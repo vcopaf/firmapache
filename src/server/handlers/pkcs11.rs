@@ -13,7 +13,14 @@ pub async fn library(State(state): State<AppState>) -> Result<Json<Pkcs11Library
 
 pub async fn tokens(State(state): State<AppState>) -> Result<Json<Vec<TokenInfo>>, AppError> {
     let config = state.config()?;
-    let tokens = tokio::task::spawn_blocking(move || provider::list_tokens(&config)).await??;
+    let cache = state.token_certificate_cache().clone();
+    let tokens = if cache.snapshot()?.loaded_at.is_some() {
+        cache.get_cached_tokens()?
+    } else {
+        tokio::task::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
+            .await??
+            .tokens
+    };
 
     Ok(Json(tokens))
 }

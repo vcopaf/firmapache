@@ -9,7 +9,7 @@ use tracing::info;
 
 use crate::{
     config::{AppConfig, ConfigError},
-    core::signing::session_manager::SigningSessionManager,
+    core::{cache::TokenCertificateCache, signing::session_manager::SigningSessionManager},
     error::AppError,
 };
 
@@ -19,6 +19,7 @@ pub use routes::router;
 pub struct AppState {
     config: Arc<RwLock<AppConfig>>,
     signing_sessions: SigningSessionManager,
+    token_certificate_cache: TokenCertificateCache,
 }
 
 impl AppState {
@@ -26,6 +27,7 @@ impl AppState {
         Self {
             config: Arc::new(RwLock::new(config)),
             signing_sessions: SigningSessionManager::new(),
+            token_certificate_cache: TokenCertificateCache::new(),
         }
     }
 
@@ -39,12 +41,17 @@ impl AppState {
     pub fn replace_config(&self, config: AppConfig) -> Result<(), AppError> {
         let mut active_config = self.config.write().map_err(|_| ConfigError::StateLock)?;
         *active_config = config;
+        let _ = self.token_certificate_cache.invalidate();
 
         Ok(())
     }
 
     pub fn signing_sessions(&self) -> &SigningSessionManager {
         &self.signing_sessions
+    }
+
+    pub fn token_certificate_cache(&self) -> &TokenCertificateCache {
+        &self.token_certificate_cache
     }
 }
 

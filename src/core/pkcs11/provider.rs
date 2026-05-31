@@ -1,4 +1,4 @@
-use std::{env, path::Path, sync::Mutex};
+use std::{env, path::Path, sync::Mutex, time::Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cryptoki::{
@@ -99,18 +99,27 @@ pub enum ProviderError {
 }
 
 pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, ProviderError> {
+    let started = Instant::now();
     if let Some(configured_path) = env::var_os(PKCS11_LIBRARY_ENV) {
         let path = configured_path.to_string_lossy().into_owned();
         if !Path::new(&path).is_file() {
             warn!(
                 path,
                 source = "env",
+                signing_step = "detect_pkcs11_library",
+                elapsed_ms = started.elapsed().as_millis() as u64,
                 "configured PKCS#11 library does not exist"
             );
             return Err(ProviderError::InvalidEnvironmentPath(path));
         }
 
-        info!(path, source = "env", "PKCS#11 library selected");
+        info!(
+            path,
+            source = "env",
+            signing_step = "detect_pkcs11_library",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "PKCS#11 library selected"
+        );
         return Ok(Pkcs11LibraryInfo {
             found: true,
             path: Some(path),
@@ -120,7 +129,13 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
 
     if let Some(path) = config.pkcs11.library_path.as_deref() {
         if Path::new(path).is_file() {
-            info!(path, source = "config", "PKCS#11 library selected");
+            info!(
+                path,
+                source = "config",
+                signing_step = "detect_pkcs11_library",
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "PKCS#11 library selected"
+            );
             return Ok(Pkcs11LibraryInfo {
                 found: true,
                 path: Some(path.to_owned()),
@@ -137,7 +152,13 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
 
     for path in COMMON_PKCS11_LIBRARY_PATHS {
         if Path::new(path).is_file() {
-            info!(path, source = "auto", "PKCS#11 library selected");
+            info!(
+                path,
+                source = "auto",
+                signing_step = "detect_pkcs11_library",
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "PKCS#11 library selected"
+            );
             return Ok(Pkcs11LibraryInfo {
                 found: true,
                 path: Some(path.to_owned()),
@@ -146,7 +167,11 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
         }
     }
 
-    warn!("PKCS#11 library not found in known locations");
+    warn!(
+        signing_step = "detect_pkcs11_library",
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "PKCS#11 library not found in known locations"
+    );
     Ok(Pkcs11LibraryInfo {
         found: false,
         path: None,
@@ -155,6 +180,7 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
 }
 
 pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> {
+    let started = Instant::now();
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
@@ -182,7 +208,7 @@ pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> 
         "PKCS#11 slots detected"
     );
 
-    slots
+    let tokens = slots
         .iter()
         .map(|slot| {
             let token_present = slots_with_token.contains(slot);
@@ -226,10 +252,18 @@ pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> 
 
             Ok(token_info)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    info!(
+        signing_step = "list_tokens",
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        token_count = tokens.len(),
+        "PKCS#11 tokens listed"
+    );
+    Ok(tokens)
 }
 
 pub fn list_certificates(config: &AppConfig) -> Result<Vec<CertificateInfo>, ProviderError> {
+    let started = Instant::now();
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
@@ -356,6 +390,8 @@ pub fn list_certificates(config: &AppConfig) -> Result<Vec<CertificateInfo>, Pro
     }
 
     info!(
+        signing_step = "list_certificates",
+        elapsed_ms = started.elapsed().as_millis() as u64,
         certificate_count = certificates.len(),
         "PKCS#11 certificates listed"
     );
@@ -366,6 +402,7 @@ pub fn sign_hash(
     config: &AppConfig,
     request: SignHashRequest,
 ) -> Result<SignHashResponse, ProviderError> {
+    let started = Instant::now();
     let SignHashRequest {
         slot_id,
         pin,
@@ -444,6 +481,8 @@ pub fn sign_hash(
             slot_id,
             certificate_id_selected = selected_certificate_id.is_some(),
             algorithm,
+            signing_step = "sign_hash",
+            elapsed_ms = started.elapsed().as_millis() as u64,
             "PKCS#11 hash signature created"
         );
         Ok(SignHashResponse {

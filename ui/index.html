@@ -50,8 +50,16 @@
       <div class="button-row">
         <button id="save-config">Guardar configuracion</button>
         <button id="test-token" class="secondary">Probar driver / token</button>
+        <button id="refresh-token-cache" class="secondary">Actualizar tokens/certificados</button>
       </div>
       <p class="quiet">El PIN solo se solicita al aprobar una firma y no se almacena.</p>
+      <dl class="summary cache-summary">
+        <div><dt>Cache</dt><dd id="cache-status">Cargando tokens y certificados...</dd></div>
+        <div><dt>Ultima carga</dt><dd id="cache-loaded-at">-</dd></div>
+        <div><dt>Tokens</dt><dd id="cache-token-count">0</dd></div>
+        <div><dt>Certificados</dt><dd id="cache-certificate-count">0</dd></div>
+        <div class="wide"><dt>Driver cacheado</dt><dd id="cache-library-path">-</dd></div>
+      </dl>
     </section>
 
     <section class="card">

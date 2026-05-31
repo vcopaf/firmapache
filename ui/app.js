@@ -7,6 +7,8 @@ let loadingSessions = false;
 let certificates = [];
 let tokens = [];
 let certificatesLoaded = false;
+let tokenCertificateCache = null;
+let cachePoll = null;
 let signingInProgress = false;
 let manualFile = null;
 let manualResult = null;
@@ -113,6 +115,11 @@ async function saveConfig() {
   const message = document.getElementById("save-message");
   message.textContent = "Guardado";
   window.setTimeout(() => { message.textContent = ""; }, 2500);
+  certificates = [];
+  tokens = [];
+  certificatesLoaded = false;
+  renderTokenCertificateCache(null);
+  await refreshTokenCertificateCache();
 }
 
 async function restartServer() {
@@ -122,12 +129,61 @@ async function restartServer() {
 }
 
 async function loadTokens() {
-  const container = document.getElementById("tokens");
   setAppStatus("Detectando token...");
-  tokens = await invoke("list_tokens");
+  await loadTokenCertificateCache();
   if (!tokens.length) {
-    empty(container, "No se detectaron slots.");
     setAppStatus("No se detectaron tokens", "error");
+    return;
+  }
+  setAppStatus("Token detectado", "active");
+}
+
+async function loadCertificates() {
+  setAppStatus("Cargando certificados...");
+  await loadTokenCertificateCache();
+  if (!certificates.length) {
+    setAppStatus("No se encontraron certificados", "error");
+    return;
+  }
+  setAppStatus("Certificados cargados", "active");
+}
+
+async function loadTokenCertificateCache() {
+  const cache = await invoke("get_token_certificate_cache");
+  applyTokenCertificateCache(cache);
+  if (!cache.loaded_at) {
+    setAppStatus("Cargando tokens y certificados...", "pending");
+    startCacheWarmupPoll();
+  }
+}
+
+async function refreshTokenCertificateCache() {
+  setAppStatus("Actualizando tokens y certificados...");
+  renderCacheLoading();
+  const cache = await invoke("refresh_tokens_and_certificates");
+  applyTokenCertificateCache(cache);
+  setAppStatus("Tokens y certificados actualizados", "active");
+}
+
+function applyTokenCertificateCache(cache) {
+  tokenCertificateCache = cache;
+  tokens = cache.tokens || [];
+  certificates = cache.certificates || [];
+  certificatesLoaded = Boolean(cache.loaded_at);
+  renderTokenCertificateCache(cache);
+  renderTokens();
+  renderCertificates();
+  populateSigningCertificates();
+  populateManualCertificates();
+}
+
+function renderTokens() {
+  const container = document.getElementById("tokens");
+  if (!container) {
+    return;
+  }
+  if (!tokens.length) {
+    empty(container, certificatesLoaded ? "No se detectaron slots." : "Cargando tokens...");
     return;
   }
   showItems(container, tokens.map((token) => item(
@@ -138,24 +194,15 @@ async function loadTokens() {
       token.serial_number ? `Serial: ${token.serial_number}` : "",
     ],
   )));
-  setAppStatus("Token detectado", "active");
 }
 
-async function loadCertificates() {
+function renderCertificates() {
   const container = document.getElementById("certificates");
-  setAppStatus("Cargando certificados...");
-  const [loadedTokens, loadedCertificates] = await Promise.all([
-    invoke("list_tokens"),
-    invoke("list_certificates"),
-  ]);
-  tokens = loadedTokens;
-  certificates = loadedCertificates;
-  certificatesLoaded = true;
+  if (!container) {
+    return;
+  }
   if (!certificates.length) {
-    empty(container, "No se encontraron certificados.");
-    populateSigningCertificates();
-    populateManualCertificates();
-    setAppStatus("No se encontraron certificados", "error");
+    empty(container, certificatesLoaded ? "No se encontraron certificados." : "Cargando certificados...");
     return;
   }
   showItems(container, certificates.map((certificate) => item(
@@ -168,9 +215,50 @@ async function loadCertificates() {
       certificate.id ? `ID: ${certificate.id}` : "",
     ],
   )));
-  populateSigningCertificates();
-  populateManualCertificates();
-  setAppStatus("Certificados cargados", "active");
+}
+
+function renderTokenCertificateCache(cache) {
+  const status = document.getElementById("cache-status");
+  if (!status) {
+    return;
+  }
+  if (!cache || !cache.loaded_at) {
+    status.textContent = "Cargando tokens y certificados...";
+    document.getElementById("cache-loaded-at").textContent = "-";
+    document.getElementById("cache-token-count").textContent = "0";
+    document.getElementById("cache-certificate-count").textContent = "0";
+    document.getElementById("cache-library-path").textContent = "-";
+    return;
+  }
+  status.textContent = "Cache cargada";
+  document.getElementById("cache-loaded-at").textContent = new Date(cache.loaded_at).toLocaleString();
+  document.getElementById("cache-token-count").textContent = cache.token_count;
+  document.getElementById("cache-certificate-count").textContent = cache.certificate_count;
+  document.getElementById("cache-library-path").textContent = cache.pkcs11_library_path || "-";
+}
+
+function renderCacheLoading() {
+  const status = document.getElementById("cache-status");
+  if (status) {
+    status.textContent = "Actualizando...";
+  }
+}
+
+function startCacheWarmupPoll() {
+  if (windowMode !== "main" || cachePoll) {
+    return;
+  }
+  let attempts = 0;
+  cachePoll = window.setInterval(() => {
+    attempts += 1;
+    run(async () => {
+      await loadTokenCertificateCache();
+      if (tokenCertificateCache?.loaded_at || attempts >= 30) {
+        window.clearInterval(cachePoll);
+        cachePoll = null;
+      }
+    });
+  }, 1000);
 }
 
 function tokenName(token) {
@@ -224,7 +312,10 @@ async function showSigningSession(session) {
   setSigningProgress("Esperando firma", false);
   populateSigningCertificates();
   if (!certificatesLoaded) {
-    await loadCertificates();
+    await loadTokenCertificateCache();
+    if (!certificatesLoaded) {
+      await refreshTokenCertificateCache();
+    }
   }
   updateApprovalState();
   document.getElementById("modal-pin").focus();
@@ -443,7 +534,10 @@ async function selectManualFile() {
   document.getElementById("manual-save-result").disabled = true;
   document.getElementById("manual-sign-message").textContent = "";
   if (!certificatesLoaded) {
-    await loadCertificates();
+    await loadTokenCertificateCache();
+    if (!certificatesLoaded) {
+      await refreshTokenCertificateCache();
+    }
   }
   updateManualState();
 }
@@ -595,13 +689,14 @@ function configureWindowMode() {
 function bindEvents() {
   if (windowMode === "main") {
     document.getElementById("refresh-all").addEventListener("click", () => run(async () => {
-      await Promise.all([loadStatus(), loadConfig(), loadSessions()]);
+      await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
     }));
     document.getElementById("choose-library").addEventListener("click", () => run(selectLibrary));
     document.getElementById("save-config").addEventListener("click", () => run(saveConfig));
-    document.getElementById("test-token").addEventListener("click", () => run(loadTokens));
-    document.getElementById("reload-tokens").addEventListener("click", () => run(loadTokens));
-    document.getElementById("reload-certificates").addEventListener("click", () => run(loadCertificates));
+    document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("reload-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("reload-certificates").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
     document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
@@ -646,9 +741,10 @@ async function bootstrap() {
   configureWindowMode();
   bindEvents();
   if (windowMode === "main") {
-    await Promise.all([loadStatus(), loadConfig(), loadCertificates(), loadSessions()]);
+    await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
   } else {
     clearSigningForm();
+    await loadTokenCertificateCache();
     await loadSessions();
   }
 }
