@@ -83,29 +83,46 @@
         <h2>Firma manual</h2>
         <span id="manual-sign-message" class="quiet"></span>
       </div>
-      <p class="quiet manual-intro">Firme un archivo JSON local como JWS compact. PDF aun no esta implementado.</p>
+      <p class="quiet manual-intro">Seleccione un archivo. MiniFirmador detecta el tipo y el formato de firma correspondiente automaticamente.</p>
       <div class="button-row">
         <button id="manual-select-file" class="secondary">Seleccionar archivo</button>
       </div>
       <dl class="manual-file-summary">
         <div><dt>Archivo</dt><dd id="manual-file-name">Sin archivo seleccionado</dd></div>
         <div><dt>Tamano</dt><dd id="manual-file-size">-</dd></div>
-        <div><dt>Formato detectado</dt><dd id="manual-file-format">-</dd></div>
+        <div><dt>Tipo detectado</dt><dd id="manual-file-type">-</dd></div>
+        <div><dt>Formato salida</dt><dd id="manual-output-format">-</dd></div>
+        <div><dt>Nombre sugerido</dt><dd id="manual-suggested-name">-</dd></div>
+        <div><dt>Estado validacion</dt><dd id="manual-validation-status">Sin archivo.</dd></div>
       </dl>
-      <div class="modal-form">
+
+      <div id="manual-json-panel" class="modal-form hidden">
         <label for="manual-certificate">Certificado para firmar</label>
         <select id="manual-certificate"></select>
         <label for="manual-pin">PIN del token</label>
         <input id="manual-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
       </div>
+
+      <div id="manual-pdf-panel" class="hidden">
+        <div class="signing-progress hidden" id="manual-pdf-progress">
+          <span class="spinner"></span>
+          <span>Inspeccionando PDF...</span>
+        </div>
+        <dl class="summary pdf-summary">
+          <div><dt>Header %PDF-</dt><dd id="manual-pdf-valid-header">-</dd></div>
+          <div><dt>Marcador %%EOF</dt><dd id="manual-pdf-has-eof">-</dd></div>
+          <div class="wide"><dt>PDF/PAdES</dt><dd>Firma PDF/PAdES estara disponible en una proxima fase.</dd></div>
+        </dl>
+      </div>
+
+      <p id="manual-unsupported-message" class="quiet hidden">Actualmente solo se admiten archivos JSON y PDF.</p>
       <p id="manual-sign-error" class="modal-error hidden" role="alert"></p>
       <div class="signing-progress hidden" id="manual-sign-progress">
         <span class="spinner"></span>
         <span>Firmando archivo... no retire el token</span>
       </div>
       <div class="modal-actions">
-        <button id="manual-save-result" class="secondary" disabled>Guardar resultado</button>
-        <button id="manual-sign-file">Firmar</button>
+        <button id="manual-sign-file" disabled>Firmar</button>
       </div>
     </section>
 

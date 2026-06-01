@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
     config::AppConfig,
-    core::{pkcs11::provider, signing::jws},
+    core::{pdf::PdfDocumentInfo, pkcs11::provider, signing::jws},
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
@@ -66,6 +66,25 @@ pub struct SelectedFileToSign {
     name: String,
     size_bytes: u64,
     detected_format: String,
+}
+
+#[derive(Serialize)]
+pub struct SelectedPdfFile {
+    path: String,
+    name: String,
+    size_bytes: u64,
+}
+
+#[derive(Serialize)]
+pub struct SelectedManualFile {
+    path: String,
+    name: String,
+    size_bytes: u64,
+    detected_type: String,
+    output_format: String,
+    suggested_file_name: Option<String>,
+    supported: bool,
+    pdf_info: Option<PdfDocumentInfo>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +186,68 @@ pub async fn select_file_to_sign(app: AppHandle) -> Result<Option<SelectedFileTo
         path: path.to_string_lossy().into_owned(),
         size_bytes: metadata.len(),
     }))
+}
+
+#[tauri::command]
+pub async fn select_pdf_file(app: AppHandle) -> Result<Option<SelectedPdfFile>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo leer informacion del PDF: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Seleccione un archivo PDF valido".to_owned());
+    }
+
+    Ok(Some(SelectedPdfFile {
+        name: file_name(&path),
+        path: path.to_string_lossy().into_owned(),
+        size_bytes: metadata.len(),
+    }))
+}
+
+#[tauri::command]
+pub async fn select_manual_file(app: AppHandle) -> Result<Option<SelectedManualFile>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("JSON y PDF", &["json", "pdf"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo leer informacion del archivo: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Seleccione un archivo valido".to_owned());
+    }
+
+    Ok(Some(selected_manual_file(path, metadata.len())))
+}
+
+#[tauri::command]
+pub async fn inspect_pdf_file(path: String) -> Result<PdfDocumentInfo, String> {
+    if path.trim().is_empty() {
+        return Err("archivo PDF no seleccionado".to_owned());
+    }
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || mini_firmador::core::pdf::inspect_pdf_file(&path))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -453,6 +534,62 @@ fn suggested_jws_file_name(path: &Path) -> String {
         .filter(|stem| !stem.is_empty())
         .unwrap_or("firmado");
     format!("{stem}.jws")
+}
+
+fn suggested_signed_pdf_file_name(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("firmado");
+    format!("{stem}-firmado.pdf")
+}
+
+fn selected_manual_file(path: PathBuf, size_bytes: u64) -> SelectedManualFile {
+    let detected_format = detected_format(&path);
+    let pdf_info = mini_firmador::core::pdf::inspect_pdf_file(&path).ok();
+    let is_pdf = detected_format == "pdf"
+        || pdf_info
+            .as_ref()
+            .is_some_and(|info| info.valid_header || info.has_eof_marker);
+    let is_json = detected_format == "json" && !is_pdf;
+
+    if is_json {
+        return SelectedManualFile {
+            name: file_name(&path),
+            path: path.to_string_lossy().into_owned(),
+            size_bytes,
+            detected_type: "JSON".to_owned(),
+            output_format: "JWS".to_owned(),
+            suggested_file_name: Some(suggested_jws_file_name(&path)),
+            supported: true,
+            pdf_info: None,
+        };
+    }
+
+    if is_pdf {
+        return SelectedManualFile {
+            name: file_name(&path),
+            path: path.to_string_lossy().into_owned(),
+            size_bytes,
+            detected_type: "PDF".to_owned(),
+            output_format: "PDF/PAdES".to_owned(),
+            suggested_file_name: Some(suggested_signed_pdf_file_name(&path)),
+            supported: true,
+            pdf_info,
+        };
+    }
+
+    SelectedManualFile {
+        name: file_name(&path),
+        path: path.to_string_lossy().into_owned(),
+        size_bytes,
+        detected_type: "No soportado".to_owned(),
+        output_format: "No disponible".to_owned(),
+        suggested_file_name: None,
+        supported: false,
+        pdf_info: None,
+    }
 }
 
 pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<(), String> {

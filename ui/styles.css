@@ -339,9 +339,18 @@ body[data-window="signing"] #signing-view {
   border-radius: 8px;
   display: grid;
   gap: 12px;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   margin: 14px 0 0;
   padding: 14px;
+}
+
+.manual-file-summary div:first-child,
+.manual-file-summary div:last-child {
+  grid-column: span 3;
+}
+
+.pdf-summary {
+  margin-top: 14px;
 }
 
 .manual-file-summary dt {

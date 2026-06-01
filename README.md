@@ -161,19 +161,25 @@ Los endpoints `GET /tokens` y `GET /certificates`, el modal de firma y la firma
 manual prefieren la cache. Si el certificado seleccionado no esta en cache, el
 core hace una recarga controlada como fallback antes de fallar.
 
-## Firma manual JSON/JWS
+## Firma manual
 
-La seccion **Firma manual** permite firmar un archivo local sin depender de una
-web externa:
+La seccion **Firma manual** permite seleccionar un archivo local sin depender de
+una web externa. MiniFirmador detecta automaticamente el tipo de archivo y el
+formato de salida:
+
+- JSON: genera JWS compact y abre **Guardar como** automaticamente.
+- PDF: inspecciona header `%PDF-` y marcador `%%EOF`; la firma PDF/PAdES todavia
+  no esta implementada.
+- Otros formatos: se muestran como no soportados.
 
 1. Abrir MiniFirmador con `cargo tauri dev`.
 2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
    despues de abrir la app.
-3. En **Firma manual**, pulsar **Seleccionar archivo** y elegir un `.json`.
-4. Seleccionar el certificado.
-5. Escribir el PIN del token.
-6. Pulsar **Firmar**.
-7. Cuando termine, pulsar **Guardar resultado** para escribir un `.jws`.
+3. En **Firma manual**, pulsar **Seleccionar archivo**.
+4. Si el archivo es JSON, seleccionar certificado, escribir el PIN y pulsar
+   **Firmar**.
+5. Al terminar, la app abre el dialogo **Guardar como** con nombre sugerido
+   `archivo.jws`.
 
 El archivo guardado contiene el JWS compact en texto:
 
@@ -181,8 +187,9 @@ El archivo guardado contiene el JWS compact en texto:
 header.payload.signature
 ```
 
-El PIN no se guarda ni se registra. PDF todavia no esta implementado; esta ruta
-manual firma bytes del archivo seleccionado como payload JWS.
+El PIN no se guarda ni se registra. Para PDF, la UI muestra la inspeccion basica
+y el mensaje `Firma PDF/PAdES estara disponible en una proxima fase`; no pide
+PIN ni permite firmar todavia.
 
 ## Consumo desde NextJS
 
