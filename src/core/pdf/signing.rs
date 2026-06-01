@@ -1,6 +1,7 @@
 use std::{fs, io::Cursor, path::Path, time::Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use chrono::{Local, Utc};
 use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat, dictionary};
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -148,6 +149,11 @@ fn signature_dictionary() -> Dictionary {
         "Type" => Object::Name(b"Sig".to_vec()),
         "Filter" => Object::Name(b"Adobe.PPKLite".to_vec()),
         "SubFilter" => Object::Name(b"ETSI.CAdES.detached".to_vec()),
+        "M" => Object::string_literal(pdf_date_now()),
+        "Name" => Object::string_literal(""),
+        "Reason" => Object::string_literal(""),
+        "Location" => Object::string_literal(""),
+        "ContactInfo" => Object::string_literal(""),
         "ByteRange" => Object::Array(vec![
             Object::Integer(0),
             Object::Integer(BYTE_RANGE_SENTINEL),
@@ -156,6 +162,25 @@ fn signature_dictionary() -> Dictionary {
         ]),
         "Contents" => Object::String(vec![0; CONTENTS_RESERVED_BYTES], StringFormat::Hexadecimal),
     }
+}
+
+fn pdf_date_now() -> String {
+    let now = Local::now();
+    let offset = now.format("%z").to_string();
+    if offset.len() == 5 {
+        let sign = &offset[..1];
+        let hours = &offset[1..3];
+        let minutes = &offset[3..5];
+        return format!(
+            "D:{}{}{}'{}'",
+            now.format("%Y%m%d%H%M%S"),
+            sign,
+            hours,
+            minutes
+        );
+    }
+
+    format!("D:{}Z", Utc::now().format("%Y%m%d%H%M%S"))
 }
 
 fn signature_widget(signature_id: ObjectId, page_id: ObjectId) -> Dictionary {
@@ -366,6 +391,11 @@ mod tests {
 
         assert!(text.contains("/Adobe.PPKLite"));
         assert!(text.contains("/ETSI.CAdES.detached"));
+        assert!(text.contains("/M (D:") || text.contains("/M(D:"));
+        assert!(text.contains("/Name ()") || text.contains("/Name()"));
+        assert!(text.contains("/Reason ()") || text.contains("/Reason()"));
+        assert!(text.contains("/Location ()") || text.contains("/Location()"));
+        assert!(text.contains("/ContactInfo ()") || text.contains("/ContactInfo()"));
         assert!(text.contains("/ByteRange"));
         assert!(!text.contains(&BYTE_RANGE_SENTINEL.to_string()));
         assert!(
