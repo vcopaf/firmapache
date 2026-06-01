@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use thiserror::Error;
 use tokio::sync::oneshot;
@@ -13,9 +14,12 @@ use uuid::Uuid;
 
 use crate::{
     config::AppConfig,
-    core::cache::TokenCertificateCache,
+    core::{
+        cache::TokenCertificateCache,
+        pdf::{self, PdfError},
+    },
     models::{
-        compatible::{CompatibleSignRequest, CompatibleSignResponse},
+        compatible::{CompatibleOutputFile, CompatibleSignRequest, CompatibleSignResponse},
         signing::{
             ApproveSigningSessionInput, SigningSession, SigningSessionResult, SigningSessionStatus,
         },
@@ -111,7 +115,7 @@ impl SigningSessionManager {
             .ok_or(SigningSessionError::NotFound)
     }
 
-    pub fn approve_with_jws(
+    pub fn approve_with_signature(
         &self,
         id: Uuid,
         config: &AppConfig,
@@ -131,14 +135,22 @@ impl SigningSessionManager {
 
         let file_count = session.files.len();
         let format = session.format.clone();
-        let response = jws::sign_files_with_cache(config, &session.files, input, cache)?;
+        let response = match session.format.as_str() {
+            "jws" => jws::sign_files_with_cache(config, &session.files, input, cache)?,
+            "pdf" => sign_pdf_session_files(config, cache, &session.files, input)?,
+            format => {
+                return Err(SigningSessionError::Compatible(
+                    CompatibleSignError::UnsupportedFormat(format.to_owned()),
+                ));
+            }
+        };
         info!(
             session_id = %id,
             %format,
             file_count,
             signing_step = "approve_signing_session",
             elapsed_ms = started.elapsed().as_millis() as u64,
-            "signing session approved with JWS"
+            "signing session approved"
         );
         self.resolve_signed(id, response)
     }
@@ -269,6 +281,8 @@ pub enum SigningSessionError {
     Compatible(#[from] CompatibleSignError),
     #[error(transparent)]
     Jws(#[from] JwsSignError),
+    #[error(transparent)]
+    Pdf(#[from] PdfError),
     #[error("Session not found")]
     NotFound,
     #[error("Session already resolved")]
@@ -279,6 +293,33 @@ pub enum SigningSessionError {
     Rejected,
     #[error("Signing session state lock is unavailable")]
     StateLock,
+}
+
+fn sign_pdf_session_files(
+    config: &AppConfig,
+    cache: &TokenCertificateCache,
+    files: &[crate::models::signing::SigningSessionFile],
+    input: ApproveSigningSessionInput,
+) -> Result<CompatibleSignResponse, SigningSessionError> {
+    let mut output = Vec::with_capacity(files.len());
+    for file in files {
+        let pdf_bytes = STANDARD
+            .decode(file.content_base64.as_bytes())
+            .map_err(|_| CompatibleSignError::InvalidBase64)?;
+        let signed_pdf = pdf::signing::sign_pdf_bytes(
+            config,
+            cache,
+            &pdf_bytes,
+            file.name.clone(),
+            input.clone(),
+        )?;
+        output.push(CompatibleOutputFile {
+            base64: STANDARD.encode(signed_pdf),
+            name: file.name.clone(),
+        });
+    }
+
+    Ok(CompatibleSignResponse { files: output })
 }
 
 #[cfg(test)]

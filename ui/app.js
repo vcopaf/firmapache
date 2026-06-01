@@ -294,15 +294,18 @@ function clearSigningForm() {
   document.getElementById("modal-format").textContent = "-";
   document.getElementById("modal-language").textContent = "-";
   document.getElementById("modal-status").textContent = "esperando";
+  document.getElementById("modal-approve").textContent = "Aprobar";
   setSigningProgress("Esperando firma", false);
 }
 
 async function showSigningSession(session) {
   activeSigningSession = session;
   document.getElementById("modal-session-id").textContent = session.id;
-  document.getElementById("modal-format").textContent = session.format;
+  document.getElementById("modal-format").textContent = humanSignFormat(session.format);
   document.getElementById("modal-language").textContent = session.language || "-";
   document.getElementById("modal-status").textContent = session.status;
+  document.getElementById("modal-approve").textContent =
+    session.format === "pdf" ? "Firmar PDF" : "Firmar JWS";
   showItems(document.getElementById("modal-files"), session.files.map((file) => item(
     file.name,
     [`Tamano: ${approximateSize(file.approximate_size_bytes)}`],
@@ -333,7 +336,7 @@ async function resolveSigningSession(action, session) {
         return;
       }
       signingInProgress = true;
-      setSigningProgress("Firmando... no retire el token", true);
+      setSigningProgress(signingProgressText(session.format), true);
       try {
         await invoke("approve_signing_session", {
           sessionId: session.id,
@@ -374,7 +377,7 @@ function sessionItem(session) {
     session.files.map((file) => file.name).join(", "),
     [
       `ID: ${session.id}`,
-      `Formato: ${session.format} - Idioma: ${session.language || "-"}`,
+      `Formato: ${humanSignFormat(session.format)} - Idioma: ${session.language || "-"}`,
       `Estado: ${session.status}`,
     ],
   );
@@ -518,6 +521,23 @@ function updateApprovalState() {
   const certificateValue = document.getElementById("modal-certificate").value;
   const pin = document.getElementById("modal-pin").value;
   approve.disabled = signingInProgress || !certificateValue || !pin;
+}
+
+function humanSignFormat(format) {
+  if (format === "pdf") {
+    return "PDF/PAdES";
+  }
+  if (format === "jws") {
+    return "JWS";
+  }
+  return format || "-";
+}
+
+function signingProgressText(format) {
+  if (format === "pdf") {
+    return "Firmando PDF... No retire el token.";
+  }
+  return "Firmando JWS... No retire el token.";
 }
 
 async function selectManualFile() {

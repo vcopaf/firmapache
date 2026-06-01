@@ -321,15 +321,20 @@ sensibles del token.
 
 ## Firma compatible sincrona
 
-El endpoint `POST /sign` recibe el payload compatible de archivo y formato
-`"jws"`. La solicitud HTTP queda abierta mientras espera autorizacion local.
+El endpoint `POST /sign` recibe el payload compatible de archivo y formato.
+Actualmente soporta:
+
+- `format = "jws"`: genera JWS compact RS256.
+- `format = "pdf"`: genera PDF firmado con `ETSI.CAdES.detached`.
+
+La solicitud HTTP queda abierta mientras espera autorizacion local.
 La interfaz Tauri detecta la sesion pendiente y abre la ventana independiente
 `Solicitud de firma` para aprobar o rechazar la operacion. La ventana solo
 muestra nombres y tamanos aproximados de los archivos; no muestra su contenido
 completo.
 
 Al aprobar, el usuario selecciona un certificado, escribe el PIN del token y el
-core genera un JWS compact real:
+core genera la firma correspondiente al formato solicitado. Para JWS genera:
 
 ```text
 BASE64URL(header).BASE64URL(payload).BASE64URL(signature)
@@ -338,6 +343,9 @@ BASE64URL(header).BASE64URL(payload).BASE64URL(signature)
 El campo `x5c` del header contiene el certificado DER en Base64 estandar. El
 JWS compact resultante se devuelve codificado nuevamente como Base64 estandar en
 `response.files[].base64`.
+
+Para PDF, `response.files[].base64` contiene el PDF firmado completo en Base64
+estandar y el nombre del archivo se conserva igual al recibido.
 
 Levantar la aplicacion:
 
@@ -371,7 +379,7 @@ La terminal queda esperando. En la aplicacion Tauri aparece la ventana
 
 1. Seleccione un certificado.
 2. Escriba el PIN del token.
-3. Pulse **Aprobar**.
+3. Pulse **Firmar JWS** o **Firmar PDF**, segun el formato.
 
 La terminal responde:
 
@@ -397,6 +405,33 @@ Debe verse una cadena con tres partes separadas por puntos:
 ```text
 header.payload.signature
 ```
+
+Ejemplo PDF:
+
+```bash
+curl -k -X POST https://localhost:4637/sign \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "archivo": [
+      {
+        "base64": "data:application/pdf;base64,BASE64_PDF",
+        "name": "documento.pdf"
+      }
+    ],
+    "format": "pdf",
+    "language": "es"
+  }'
+```
+
+La app abre `Solicitud de firma`; el usuario selecciona certificado, ingresa PIN
+y aprueba. Para guardar la respuesta como PDF:
+
+```bash
+echo "BASE64_RESPUESTA" | base64 -d > firmado.pdf
+pdfsig firmado.pdf
+```
+
+Debe mostrar `Signature Type: ETSI.CAdES.detached`.
 
 Repita la solicitud y pulse **Rechazar** en la ventana. El request `POST /sign`
 pendiente responde:

@@ -29,8 +29,6 @@ pub fn sign_pdf_file(
     path: impl AsRef<Path>,
     input: ApproveSigningSessionInput,
 ) -> Result<Vec<u8>, PdfError> {
-    let started = Instant::now();
-    validate_input(&input)?;
     let path = path.as_ref();
     if path.as_os_str().is_empty() {
         return Err(PdfError::EmptyPath);
@@ -41,8 +39,23 @@ pub fn sign_pdf_file(
     }
 
     let source = fs::read(path)?;
-    let info = inspect_pdf_bytes(file_name(path), metadata.len(), &source);
+    sign_pdf_bytes(config, cache, &source, file_name(path), input)
+}
+
+pub fn sign_pdf_bytes(
+    config: &AppConfig,
+    cache: &TokenCertificateCache,
+    pdf_bytes: &[u8],
+    file_name: String,
+    input: ApproveSigningSessionInput,
+) -> Result<Vec<u8>, PdfError> {
+    let started = Instant::now();
+    validate_input(&input)?;
+    let info = inspect_pdf_bytes(file_name, pdf_bytes.len() as u64, pdf_bytes);
     if !info.valid_header {
+        return Err(PdfError::InvalidPdf);
+    }
+    if !info.has_eof_marker {
         return Err(PdfError::InvalidPdf);
     }
 
@@ -52,7 +65,7 @@ pub fn sign_pdf_file(
         .decode(certificate_der_base64.as_bytes())
         .map_err(|_| PdfError::InvalidCertificateBase64)?;
 
-    let mut prepared = prepare_pdf_for_signature(&source)?;
+    let mut prepared = prepare_pdf_for_signature(pdf_bytes)?;
     let offsets = patch_byte_range(&mut prepared)?;
     let content_digest = digest_byte_range(&prepared, &offsets);
     let signed_attrs = cms::signed_attrs_der(&content_digest, &certificate_der)?;

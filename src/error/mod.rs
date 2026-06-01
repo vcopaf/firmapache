@@ -9,8 +9,9 @@ use thiserror::Error;
 use crate::{
     config::ConfigError,
     core::{
-        cache::CacheError, crypto::verifier::VerifyError, pkcs11::provider::ProviderError,
-        signing::jws::JwsSignError, signing::session_manager::SigningSessionError,
+        cache::CacheError, crypto::verifier::VerifyError, pdf::PdfError,
+        pkcs11::provider::ProviderError, signing::jws::JwsSignError,
+        signing::session_manager::SigningSessionError,
     },
 };
 
@@ -121,6 +122,22 @@ impl IntoResponse for AppError {
             Self::SigningSession(SigningSessionError::Jws(error)) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("JWS signing failed: {error}"),
+            ),
+            Self::SigningSession(SigningSessionError::Pdf(PdfError::InvalidPdf)) => {
+                (StatusCode::BAD_REQUEST, "Invalid PDF input".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::Pdf(PdfError::CertificateNotFound)) => {
+                (StatusCode::NOT_FOUND, "Certificate not found".to_owned())
+            }
+            Self::SigningSession(SigningSessionError::Pdf(PdfError::Pkcs11(
+                ProviderError::LoginFailed,
+            ))) => (
+                StatusCode::UNAUTHORIZED,
+                "PKCS#11 login failed. Check PIN. No retry was attempted.".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::Pdf(error)) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("PDF signing failed: {error}"),
             ),
             Self::SigningSession(SigningSessionError::NotFound) => {
                 (StatusCode::NOT_FOUND, "Session not found".to_owned())

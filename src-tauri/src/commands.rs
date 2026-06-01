@@ -531,7 +531,7 @@ pub async fn approve_signing_session(
     let cache = state.token_certificate_cache().clone();
     let started = Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
-        manager.approve_with_jws(
+        manager.approve_with_signature(
             id,
             &config,
             ApproveSigningSessionInput {

@@ -16,10 +16,13 @@ pub enum CompatibleSignError {
     EmptyBase64,
     #[error("Invalid base64 input")]
     InvalidBase64,
+    #[error("Invalid PDF input")]
+    InvalidPdf,
     #[error("Unsupported sign format: {0}")]
     UnsupportedFormat(String),
 }
 
+#[derive(Debug)]
 pub struct PreparedSignRequest {
     pub files: Vec<SigningSessionFile>,
     pub format: String,
@@ -35,7 +38,8 @@ pub fn prepare_sign_request(
         language: _language,
     } = request;
 
-    if format != "jws" {
+    let format = format.to_ascii_lowercase();
+    if !matches!(format.as_str(), "jws" | "pdf") {
         return Err(CompatibleSignError::UnsupportedFormat(format));
     }
     if archivo.is_empty() {
@@ -50,6 +54,9 @@ pub fn prepare_sign_request(
             }
 
             let contents = parse_input_base64(&file.base64)?;
+            if format == "pdf" && !is_valid_pdf_input(&contents) {
+                return Err(CompatibleSignError::InvalidPdf);
+            }
             Ok(SigningSessionFile {
                 content_base64: STANDARD.encode(contents),
                 name: file.name,
@@ -62,6 +69,13 @@ pub fn prepare_sign_request(
         format,
         language: _language,
     })
+}
+
+fn is_valid_pdf_input(contents: &[u8]) -> bool {
+    contents.starts_with(b"%PDF-")
+        && contents
+            .windows(b"%%EOF".len())
+            .any(|window| window == b"%%EOF")
 }
 
 pub fn parse_input_base64(input: &str) -> Result<Vec<u8>, CompatibleSignError> {
@@ -96,5 +110,44 @@ pub fn response_for_files(files: &[SigningSessionFile]) -> CompatibleSignRespons
                 name: file.name.clone(),
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::compatible::{CompatibleInputFile, CompatibleSignRequest};
+
+    #[test]
+    fn prepares_pdf_sign_request() {
+        let request = CompatibleSignRequest {
+            archivo: vec![CompatibleInputFile {
+                base64: "data:application/pdf;base64,JVBERi0xLjcKJSB0ZXN0CiUlRU9GCg==".to_owned(),
+                name: "documento.pdf".to_owned(),
+            }],
+            format: "pdf".to_owned(),
+            language: Some("es".to_owned()),
+        };
+
+        let prepared = prepare_sign_request(request).expect("valid PDF payload");
+
+        assert_eq!(prepared.format, "pdf");
+        assert_eq!(prepared.files[0].name, "documento.pdf");
+    }
+
+    #[test]
+    fn rejects_invalid_pdf_sign_request() {
+        let request = CompatibleSignRequest {
+            archivo: vec![CompatibleInputFile {
+                base64: "aG9sYQ==".to_owned(),
+                name: "documento.pdf".to_owned(),
+            }],
+            format: "pdf".to_owned(),
+            language: None,
+        };
+
+        let error = prepare_sign_request(request).expect_err("invalid PDF must fail");
+
+        assert!(matches!(error, CompatibleSignError::InvalidPdf));
     }
 }
