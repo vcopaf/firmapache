@@ -111,7 +111,7 @@
         <dl class="summary pdf-summary">
           <div><dt>Header %PDF-</dt><dd id="manual-pdf-valid-header">-</dd></div>
           <div><dt>Marcador %%EOF</dt><dd id="manual-pdf-has-eof">-</dd></div>
-          <div class="wide"><dt>PDF/PAdES</dt><dd>Firma PDF/PAdES estara disponible en una proxima fase.</dd></div>
+          <div class="wide"><dt>PDF/PAdES</dt><dd>Se generara una firma detached ETSI.CAdES.detached.</dd></div>
         </dl>
       </div>
 
@@ -119,7 +119,7 @@
       <p id="manual-sign-error" class="modal-error hidden" role="alert"></p>
       <div class="signing-progress hidden" id="manual-sign-progress">
         <span class="spinner"></span>
-        <span>Firmando archivo... no retire el token</span>
+        <span id="manual-sign-progress-text">Firmando archivo... no retire el token</span>
       </div>
       <div class="modal-actions">
         <button id="manual-sign-file" disabled>Firmar</button>

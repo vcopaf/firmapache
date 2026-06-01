@@ -5,10 +5,11 @@ PKCS#11 para firma digital.
 
 Esta fase expone endpoints de salud y version, selecciona una libreria PKCS#11
 compatible y enumera slots con tokens presentes. Soporta el driver propietario
-Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token. No
-implementa procesamiento PDF/XML. Incluye una interfaz Tauri administrativa
-minima que reutiliza el mismo core y el mismo servidor local. La firma de hash
-requiere un PIN provisto en cada solicitud y no lo almacena.
+Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token.
+Incluye una interfaz Tauri administrativa que reutiliza el mismo core y el
+mismo servidor local. Soporta JWS compact RS256 y firma PDF basica con
+`ETSI.CAdES.detached`. La firma de hash requiere un PIN provisto en cada
+solicitud y no lo almacena.
 
 ## Requisitos
 
@@ -124,6 +125,8 @@ La ventana permite:
 - Consultar tokens y certificados publicos.
 - Actualizar manualmente la cache de tokens/certificados.
 - Firmar manualmente archivos JSON locales como JWS compact.
+- Firmar manualmente archivos PDF con una firma detached
+  `ETSI.CAdES.detached`.
 - Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
   visualmente su flujo.
 
@@ -168,18 +171,19 @@ una web externa. MiniFirmador detecta automaticamente el tipo de archivo y el
 formato de salida:
 
 - JSON: genera JWS compact y abre **Guardar como** automaticamente.
-- PDF: inspecciona header `%PDF-` y marcador `%%EOF`; la firma PDF/PAdES todavia
-  no esta implementada.
+- PDF: valida header `%PDF-` y marcador `%%EOF`, genera una firma PDF con
+  `/Filter /Adobe.PPKLite`, `/SubFilter /ETSI.CAdES.detached`, `/ByteRange` y
+  CMS/CAdES detached SHA-256, y abre **Guardar como** automaticamente.
 - Otros formatos: se muestran como no soportados.
 
 1. Abrir MiniFirmador con `cargo tauri dev`.
 2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
    despues de abrir la app.
 3. En **Firma manual**, pulsar **Seleccionar archivo**.
-4. Si el archivo es JSON, seleccionar certificado, escribir el PIN y pulsar
-   **Firmar**.
+4. Si el archivo es JSON o PDF, seleccionar certificado, escribir el PIN y
+   pulsar **Firmar**.
 5. Al terminar, la app abre el dialogo **Guardar como** con nombre sugerido
-   `archivo.jws`.
+   `archivo.jws` para JSON o `archivo-firmado.pdf` para PDF.
 
 El archivo guardado contiene el JWS compact en texto:
 
@@ -187,9 +191,23 @@ El archivo guardado contiene el JWS compact en texto:
 header.payload.signature
 ```
 
-El PIN no se guarda ni se registra. Para PDF, la UI muestra la inspeccion basica
-y el mensaje `Firma PDF/PAdES estara disponible en una proxima fase`; no pide
-PIN ni permite firmar todavia.
+Para PDF, el archivo guardado conserva el documento original con una firma
+digital invisible. Puede inspeccionarse con:
+
+```bash
+pdfsig archivo-firmado.pdf
+```
+
+La compatibilidad esperada es:
+
+```text
+Signature Type: ETSI.CAdES.detached
+Signing Hash Algorithm: SHA-256
+```
+
+Limitaciones actuales de PDF: no se implementa TSA, LTV, OCSP ni CRL. La firma
+es detached y usa el certificado seleccionado desde el token PKCS#11. El PIN no
+se guarda ni se registra.
 
 ## Consumo desde NextJS
 

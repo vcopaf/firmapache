@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
     config::AppConfig,
-    core::{pdf::PdfDocumentInfo, pkcs11::provider, signing::jws},
+    core::{pdf::{self, PdfDocumentInfo}, pkcs11::provider, signing::jws},
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
@@ -90,6 +90,12 @@ pub struct SelectedManualFile {
 #[derive(Serialize)]
 pub struct ManualSignResponse {
     jws_base64: String,
+    suggested_file_name: String,
+}
+
+#[derive(Serialize)]
+pub struct PdfSignResponse {
+    pdf_base64: String,
     suggested_file_name: String,
 }
 
@@ -295,6 +301,49 @@ pub async fn sign_file_as_jws(
 }
 
 #[tauri::command]
+pub async fn sign_pdf(
+    state: State<'_, AppState>,
+    path: String,
+    slot_id: u64,
+    certificate_id: String,
+    pin: String,
+) -> Result<PdfSignResponse, String> {
+    if path.trim().is_empty() {
+        return Err("archivo PDF no seleccionado".to_owned());
+    }
+    if certificate_id.trim().is_empty() {
+        return Err("certificado no seleccionado".to_owned());
+    }
+    if pin.is_empty() {
+        return Err("PIN vacio".to_owned());
+    }
+
+    let config = current_config(&state)?;
+    let cache = state.token_certificate_cache().clone();
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let signed_pdf = pdf::signing::sign_pdf_file(
+            &config,
+            &cache,
+            &path,
+            ApproveSigningSessionInput {
+                slot_id,
+                certificate_id,
+                pin,
+            },
+        )
+        .map_err(|error| format!("error firmando PDF: {error}"))?;
+
+        Ok(PdfSignResponse {
+            pdf_base64: STANDARD.encode(signed_pdf),
+            suggested_file_name: suggested_signed_pdf_file_name(&path),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub async fn save_signed_file(
     app: AppHandle,
     jws_base64: String,
@@ -324,6 +373,42 @@ pub async fn save_signed_file(
         .into_path()
         .map_err(|error| format!("No se pudo obtener la ruta de guardado: {error}"))?;
     fs::write(&path, decoded).map_err(|error| format!("error guardando archivo: {error}"))?;
+
+    Ok(SaveSignedFileResponse {
+        saved: true,
+        path: Some(path.to_string_lossy().into_owned()),
+    })
+}
+
+#[tauri::command]
+pub async fn save_pdf_file(
+    app: AppHandle,
+    pdf_base64: String,
+    suggested_file_name: String,
+) -> Result<SaveSignedFileResponse, String> {
+    if pdf_base64.trim().is_empty() {
+        return Err("PDF firmado vacio".to_owned());
+    }
+    let decoded = STANDARD
+        .decode(pdf_base64.as_bytes())
+        .map_err(|_| "PDF firmado no es Base64 valido".to_owned())?;
+
+    let destination = app
+        .dialog()
+        .file()
+        .add_filter("PDF firmado", &["pdf"])
+        .set_file_name(suggested_file_name)
+        .blocking_save_file();
+    let Some(destination) = destination else {
+        return Ok(SaveSignedFileResponse {
+            saved: false,
+            path: None,
+        });
+    };
+    let path = destination
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta de guardado: {error}"))?;
+    fs::write(&path, decoded).map_err(|error| format!("error guardando PDF: {error}"))?;
 
     Ok(SaveSignedFileResponse {
         saved: true,

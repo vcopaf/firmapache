@@ -535,7 +535,7 @@ async function selectManualFile() {
   document.getElementById("manual-suggested-name").textContent = selected.suggested_file_name || "-";
   document.getElementById("manual-sign-message").textContent = "";
   renderManualMode(selected);
-  if (selected.detected_type === "JSON" && !certificatesLoaded) {
+  if ((selected.detected_type === "JSON" || selected.detected_type === "PDF") && !certificatesLoaded) {
     await loadTokenCertificateCache();
     if (!certificatesLoaded) {
       await refreshTokenCertificateCache();
@@ -545,10 +545,6 @@ async function selectManualFile() {
 }
 
 async function signManualFile() {
-  if (manualFile?.detected_type === "PDF") {
-    showManualError("Firma PDF/PAdES estara disponible en una proxima fase");
-    return;
-  }
   const input = selectedManualApprovalInput();
   if (!input) {
     return;
@@ -556,17 +552,30 @@ async function signManualFile() {
 
   manualSigningInProgress = true;
   updateManualState();
-  setManualProgress(true);
+  setManualProgress(true, manualFile.detected_type === "PDF"
+    ? "Firmando PDF... No retire el token."
+    : "Firmando archivo... no retire el token");
   clearManualError();
   try {
-    manualResult = await invoke("sign_file_as_jws", {
-      path: manualFile.path,
-      slotId: input.slotId,
-      certificateId: input.certificateId,
-      pin: input.pin,
-    });
-    document.getElementById("manual-sign-message").textContent = "Archivo firmado. Abriendo Guardar como...";
-    await saveManualResult();
+    if (manualFile.detected_type === "PDF") {
+      manualResult = await invoke("sign_pdf", {
+        path: manualFile.path,
+        slotId: input.slotId,
+        certificateId: input.certificateId,
+        pin: input.pin,
+      });
+      document.getElementById("manual-sign-message").textContent = "PDF firmado. Abriendo Guardar como...";
+      await saveManualPdfResult();
+    } else {
+      manualResult = await invoke("sign_file_as_jws", {
+        path: manualFile.path,
+        slotId: input.slotId,
+        certificateId: input.certificateId,
+        pin: input.pin,
+      });
+      document.getElementById("manual-sign-message").textContent = "Archivo firmado. Abriendo Guardar como...";
+      await saveManualResult();
+    }
   } catch (error) {
     manualResult = null;
     showManualError(error);
@@ -594,14 +603,35 @@ async function saveManualResult() {
   }
 }
 
+async function saveManualPdfResult() {
+  if (!manualResult) {
+    showManualError("No hay PDF firmado para guardar");
+    return;
+  }
+  const response = await invoke("save_pdf_file", {
+    pdfBase64: manualResult.pdf_base64,
+    suggestedFileName: manualFile?.suggested_file_name || manualResult.suggested_file_name,
+  });
+  if (response.saved) {
+    document.getElementById("manual-sign-message").textContent = `Guardado: ${response.path}`;
+  } else {
+    document.getElementById("manual-sign-message").textContent = "PDF firmado. Guardado cancelado.";
+  }
+}
+
 function selectedManualApprovalInput() {
   if (!manualFile) {
     showManualError("archivo no seleccionado");
     updateManualState();
     return null;
   }
-  if (manualFile.detected_type !== "JSON") {
-    showManualError("Actualmente solo se puede firmar manualmente archivos JSON como JWS");
+  if (manualFile.detected_type !== "JSON" && manualFile.detected_type !== "PDF") {
+    showManualError("Actualmente solo se admiten archivos JSON y PDF");
+    updateManualState();
+    return null;
+  }
+  if (manualFile.detected_type === "PDF" && !pdfReady(manualFile)) {
+    showManualError("El PDF no cumple las comprobaciones basicas para firma");
     updateManualState();
     return null;
   }
@@ -636,17 +666,22 @@ function updateManualState() {
     signButton.textContent = "Firmar";
     signButton.disabled = true;
   } else if (manualFile.detected_type === "PDF") {
-    signButton.textContent = "Firmar PDF (Proximamente)";
-    signButton.disabled = true;
+    signButton.textContent = "Firmar PDF";
+    signButton.disabled = manualSigningInProgress || !pdfReady(manualFile) || !certificateValue || !pin;
   } else {
     signButton.textContent = "Firmar";
     signButton.disabled = manualSigningInProgress || !certificateValue || !pin;
   }
-  certificate.disabled = manualSigningInProgress || manualFile?.detected_type !== "JSON";
-  pinInput.disabled = manualSigningInProgress || manualFile?.detected_type !== "JSON";
+  const needsCredentials = manualFile?.detected_type === "JSON" || manualFile?.detected_type === "PDF";
+  certificate.disabled = manualSigningInProgress || !needsCredentials;
+  pinInput.disabled = manualSigningInProgress || !needsCredentials;
 }
 
-function setManualProgress(active) {
+function setManualProgress(active, text = "Firmando archivo... no retire el token") {
+  const textElement = document.getElementById("manual-sign-progress-text");
+  if (textElement) {
+    textElement.textContent = text;
+  }
   document.getElementById("manual-sign-progress").classList.toggle("hidden", !active);
 }
 
@@ -672,7 +707,7 @@ function renderManualMode(file) {
   const isPdf = file.detected_type === "PDF";
   const isUnsupported = file.detected_type === "No soportado";
 
-  document.getElementById("manual-json-panel").classList.toggle("hidden", !isJson);
+  document.getElementById("manual-json-panel").classList.toggle("hidden", !(isJson || isPdf));
   document.getElementById("manual-pdf-panel").classList.toggle("hidden", !isPdf);
   document.getElementById("manual-unsupported-message").classList.toggle("hidden", !isUnsupported);
   document.getElementById("manual-pdf-progress").classList.add("hidden");
@@ -694,8 +729,12 @@ function renderManualPdfInfo(info) {
   document.getElementById("manual-pdf-has-eof").textContent = hasEof ? "Si" : "No";
   document.getElementById("manual-validation-status").textContent =
     validHeader && hasEof
-      ? "PDF inspeccionado. Firma PDF/PAdES estara disponible en una proxima fase."
+      ? "PDF inspeccionado. Listo para firmar como ETSI.CAdES.detached."
       : "PDF inspeccionado, pero no cumple todas las comprobaciones basicas.";
+}
+
+function pdfReady(file) {
+  return Boolean(file?.pdf_info?.valid_header && file?.pdf_info?.has_eof_marker);
 }
 
 function setSigningProgress(text, active) {
