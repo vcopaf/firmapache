@@ -5,6 +5,7 @@ let config = null;
 let activeSigningSession = null;
 let loadingSessions = false;
 let certificates = [];
+let signingIdentities = [];
 let tokens = [];
 let certificatesLoaded = false;
 let tokenCertificateCache = null;
@@ -156,6 +157,7 @@ async function loadCertificates() {
 async function loadTokenCertificateCache() {
   const cache = await invoke("get_token_certificate_cache");
   applyTokenCertificateCache(cache);
+  await loadSigningIdentities();
   if (!cache.loaded_at) {
     setAppStatus("Cargando tokens y certificados...", "pending");
     startCacheWarmupPoll();
@@ -167,7 +169,20 @@ async function refreshTokenCertificateCache() {
   renderCacheLoading();
   const cache = await invoke("refresh_tokens_and_certificates");
   applyTokenCertificateCache(cache);
+  await refreshSigningIdentities();
   setAppStatus("Tokens y certificados actualizados", "active");
+}
+
+async function loadSigningIdentities() {
+  signingIdentities = await invoke("list_signing_identities");
+  renderCertificates();
+  populateSigningIdentities();
+}
+
+async function refreshSigningIdentities() {
+  signingIdentities = await invoke("refresh_signing_identities");
+  renderCertificates();
+  populateSigningIdentities();
 }
 
 function applyTokenCertificateCache(cache) {
@@ -178,8 +193,6 @@ function applyTokenCertificateCache(cache) {
   renderTokenCertificateCache(cache);
   renderTokens();
   renderCertificates();
-  populateSigningCertificates();
-  populateManualCertificates();
 }
 
 function renderTokens() {
@@ -204,6 +217,23 @@ function renderTokens() {
 function renderCertificates() {
   const container = document.getElementById("certificates");
   if (!container) {
+    return;
+  }
+  if (signingIdentities.length) {
+    showItems(container, signingIdentities.map((identity) => item(
+      identityTitle(identity),
+      [
+        tokenGroupLabel(identity),
+        `Subject: ${identity.subject || "-"}`,
+        `Issuer: ${identity.issuer || "-"}`,
+        `Vence: ${identity.not_after || "-"}`,
+        `Slot: ${identity.slot_id}`,
+        identity.certificate_id ? `ID certificado: ${identity.certificate_id}` : "",
+        identity.is_default ? "Predeterminado: Si" : "",
+        !identity.is_available ? "Estado: token/certificado no disponible" : "",
+        identity.is_expired ? "Estado: certificado expirado" : "",
+      ],
+    )));
     return;
   }
   if (!certificates.length) {
@@ -290,6 +320,47 @@ function certificateDetails(certificate) {
   ].join(" | ");
 }
 
+function identityTitle(identity) {
+  return identity.subject || identity.certificate_label || identity.certificate_id || identity.identity_id;
+}
+
+function tokenGroupLabel(identity) {
+  const label = identity.token_label || "Token";
+  const serial = identity.token_serial ? ` - serial ${identity.token_serial}` : "";
+  const slot = Number.isFinite(identity.slot_id) ? ` - slot ${identity.slot_id}` : "";
+  const unavailable = identity.is_available ? "" : " - no disponible";
+  return `${label}${serial}${slot}${unavailable}`;
+}
+
+function identityDetails(identity) {
+  const flags = [];
+  if (identity.is_default) {
+    flags.push("predeterminado");
+  }
+  if (!identity.is_available) {
+    flags.push("no disponible");
+  }
+  if (identity.is_expired) {
+    flags.push("expirado");
+  } else if (identity.expires_soon) {
+    flags.push("vence pronto");
+  }
+  return [
+    identityTitle(identity),
+    `Issuer: ${identity.issuer || "-"}`,
+    `Vence: ${identity.not_after || "-"}`,
+    `Slot: ${identity.slot_id}`,
+    `ID: ${identity.certificate_id || "-"}`,
+    flags.length ? `[${flags.join(", ")}]` : "",
+  ].filter(Boolean).join(" | ");
+}
+
+function availableSigningIdentities() {
+  return signingIdentities.filter((identity) =>
+    identity.certificate_id && identity.is_available && !identity.is_expired
+  );
+}
+
 function clearSigningForm() {
   activeSigningSession = null;
   clearPin();
@@ -345,8 +416,7 @@ async function resolveSigningSession(action, session) {
       try {
         await invoke("approve_signing_session", {
           sessionId: session.id,
-          slotId: approval.slotId,
-          certificateId: approval.certificateId,
+          identityId: approval.identityId,
           pin: approval.pin,
         });
         setSigningProgress("Completando firma...", true);
@@ -435,28 +505,35 @@ async function closeSigningWindow() {
 }
 
 function populateSigningCertificates() {
-  populateCertificateSelect("modal-certificate", updateApprovalState);
+  populateIdentitySelect("modal-certificate", updateApprovalState);
 }
 
 function populateManualCertificates() {
-  populateCertificateSelect("manual-certificate", updateManualState);
+  populateIdentitySelect("manual-certificate", updateManualState);
 }
 
-function populateCertificateSelect(selectId, onUpdate) {
+function populateSigningIdentities() {
+  populateSigningCertificates();
+  populateManualCertificates();
+}
+
+function populateIdentitySelect(selectId, onUpdate) {
   const select = document.getElementById(selectId);
   if (!select) {
     return;
   }
 
   const selectedValue = select.value;
-  const options = certificates.filter((certificate) => certificate.id);
+  const options = signingIdentities.filter((identity) => identity.certificate_id);
+  const available = availableSigningIdentities();
+  const defaultIdentity = options.find((identity) => identity.is_default && identity.is_available && !identity.is_expired);
   select.replaceChildren();
   if (!options.length) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = certificatesLoaded
-      ? "No hay certificados disponibles"
-      : "Cargando certificados...";
+      ? "No hay identidades de firma disponibles"
+      : "Cargando identidades de firma...";
     select.appendChild(option);
     select.disabled = true;
     onUpdate();
@@ -464,45 +541,56 @@ function populateCertificateSelect(selectId, onUpdate) {
   }
 
   select.disabled = false;
-  const certificatesBySlot = groupBySlot(options);
+  const needsExplicitSelection = !defaultIdentity && available.length !== 1;
+  if (needsExplicitSelection) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Seleccione una identidad de firma";
+    select.appendChild(option);
+  }
 
-  certificatesBySlot.forEach((slotCertificates, slotId) => {
+  const identitiesByToken = groupByIdentityToken(options);
+
+  identitiesByToken.forEach((tokenIdentities) => {
     const group = document.createElement("optgroup");
-    const token = tokenForSlot(Number(slotId));
-    group.label = token
-      ? `${tokenName(token)} - slot ${slotId}`
-      : `Token slot ${slotId}`;
-    slotCertificates.forEach((certificate) => {
+    group.label = tokenGroupLabel(tokenIdentities[0]);
+    tokenIdentities.forEach((identity) => {
       const option = document.createElement("option");
-      option.value = `${certificate.slot_id}:${certificate.id}`;
-      option.textContent = certificateDetails(certificate);
+      option.value = identity.identity_id;
+      option.textContent = identityDetails(identity);
+      option.disabled = !identity.is_available || identity.is_expired;
       group.appendChild(option);
     });
     select.appendChild(group);
   });
 
-  if (options.length === 1) {
-    select.value = `${options[0].slot_id}:${options[0].id}`;
-  } else if ([...select.options].some((option) => option.value === selectedValue)) {
+  if ([...select.options].some((option) => option.value === selectedValue && !option.disabled)) {
     select.value = selectedValue;
+  } else if (defaultIdentity) {
+    select.value = defaultIdentity.identity_id;
+  } else if (available.length === 1) {
+    select.value = available[0].identity_id;
   }
   onUpdate();
 }
 
-function groupBySlot(items) {
+function groupByIdentityToken(items) {
   const groups = new Map();
   items.forEach((item) => {
-    const group = groups.get(item.slot_id) || [];
+    const key = item.token_serial || `slot-${item.slot_id}`;
+    const group = groups.get(key) || [];
     group.push(item);
-    groups.set(item.slot_id, group);
+    groups.set(key, group);
   });
   return groups;
 }
 
 function selectedApprovalInput() {
-  const certificateValue = document.getElementById("modal-certificate").value;
+  const certificate = document.getElementById("modal-certificate");
+  const identityId = certificate.value;
+  const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("modal-pin").value;
-  if (!certificateValue) {
+  if (!identityId || selectedOption?.disabled) {
     showSigningError("Missing certificate selection");
     updateApprovalState();
     return null;
@@ -513,19 +601,19 @@ function selectedApprovalInput() {
     return null;
   }
 
-  const [slotId, certificateId] = certificateValue.split(":");
   return {
-    slotId: Number(slotId),
-    certificateId,
+    identityId,
     pin,
   };
 }
 
 function updateApprovalState() {
   const approve = document.getElementById("modal-approve");
-  const certificateValue = document.getElementById("modal-certificate").value;
+  const certificate = document.getElementById("modal-certificate");
+  const identityId = certificate.value;
+  const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("modal-pin").value;
-  approve.disabled = signingInProgress || !certificateValue || !pin;
+  approve.disabled = signingInProgress || !identityId || selectedOption?.disabled || !pin;
 }
 
 function humanSignFormat(format) {
@@ -585,8 +673,7 @@ async function signManualFile() {
     if (manualFile.detected_type === "PDF") {
       manualResult = await invoke("sign_pdf", {
         path: manualFile.path,
-        slotId: input.slotId,
-        certificateId: input.certificateId,
+        identityId: input.identityId,
         pin: input.pin,
       });
       document.getElementById("manual-sign-message").textContent = "PDF firmado. Abriendo Guardar como...";
@@ -594,8 +681,7 @@ async function signManualFile() {
     } else {
       manualResult = await invoke("sign_file_as_jws", {
         path: manualFile.path,
-        slotId: input.slotId,
-        certificateId: input.certificateId,
+        identityId: input.identityId,
         pin: input.pin,
       });
       document.getElementById("manual-sign-message").textContent = "Archivo firmado. Abriendo Guardar como...";
@@ -660,9 +746,11 @@ function selectedManualApprovalInput() {
     updateManualState();
     return null;
   }
-  const certificateValue = document.getElementById("manual-certificate").value;
+  const certificate = document.getElementById("manual-certificate");
+  const identityId = certificate.value;
+  const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("manual-pin").value;
-  if (!certificateValue) {
+  if (!identityId || selectedOption?.disabled) {
     showManualError("certificado no seleccionado");
     updateManualState();
     return null;
@@ -673,10 +761,8 @@ function selectedManualApprovalInput() {
     return null;
   }
 
-  const [slotId, certificateId] = certificateValue.split(":");
   return {
-    slotId: Number(slotId),
-    certificateId,
+    identityId,
     pin,
   };
 }
@@ -685,21 +771,48 @@ function updateManualState() {
   const signButton = document.getElementById("manual-sign-file");
   const certificate = document.getElementById("manual-certificate");
   const pinInput = document.getElementById("manual-pin");
-  const certificateValue = document.getElementById("manual-certificate").value;
+  const identityId = certificate.value;
+  const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("manual-pin").value;
   if (!manualFile || manualFile.detected_type === "No soportado") {
     signButton.textContent = "Firmar";
     signButton.disabled = true;
   } else if (manualFile.detected_type === "PDF") {
     signButton.textContent = "Firmar PDF";
-    signButton.disabled = manualSigningInProgress || !pdfReady(manualFile) || !certificateValue || !pin;
+    signButton.disabled =
+      manualSigningInProgress || !pdfReady(manualFile) || !identityId || selectedOption?.disabled || !pin;
   } else {
     signButton.textContent = "Firmar";
-    signButton.disabled = manualSigningInProgress || !certificateValue || !pin;
+    signButton.disabled = manualSigningInProgress || !identityId || selectedOption?.disabled || !pin;
   }
   const needsCredentials = manualFile?.detected_type === "JSON" || manualFile?.detected_type === "PDF";
   certificate.disabled = manualSigningInProgress || !needsCredentials;
   pinInput.disabled = manualSigningInProgress || !needsCredentials;
+}
+
+async function setSelectedDefaultIdentity(selectId) {
+  const select = document.getElementById(selectId);
+  const identityId = select.value;
+  const selectedOption = select.options[select.selectedIndex];
+  if (!identityId || selectedOption?.disabled) {
+    showError("Seleccione una identidad de firma para marcarla como predeterminada");
+    return;
+  }
+  signingIdentities = await invoke("set_default_signing_identity", { identityId });
+  populateSigningIdentities();
+  renderCertificates();
+  if (windowMode === "main") {
+    setAppStatus("Identidad predeterminada actualizada", "active");
+  }
+}
+
+async function clearDefaultIdentity() {
+  signingIdentities = await invoke("clear_default_signing_identity");
+  populateSigningIdentities();
+  renderCertificates();
+  if (windowMode === "main") {
+    setAppStatus("Identidad predeterminada eliminada", "active");
+  }
 }
 
 function setManualProgress(active, text = "Firmando archivo... no retire el token") {
@@ -844,8 +957,17 @@ function renderDiagnostics(report) {
     item("Tokens y certificados", [
       `Tokens detectados: ${report.token_count}`,
       `Certificados detectados: ${report.certificate_count}`,
+      `Identidades de firma: ${(report.identities || []).length}`,
+      `Identidad predeterminada: ${report.default_identity_id || "-"}`,
+      `Certificados expirados: ${report.expired_certificate_count || 0}`,
+      `Vencen en menos de 30 dias: ${report.expiring_soon_certificate_count || 0}`,
       ...((report.certificates || []).slice(0, 6).map((certificate) =>
         `${certificate.subject || certificate.label || "Certificado"} | vence: ${certificate.not_after || "-"} | slot: ${certificate.slot_id}`
+      )),
+    ]),
+    item("Identidades", [
+      ...((report.identities || []).slice(0, 8).map((identity) =>
+        `${identity.is_default ? "[predeterminada] " : ""}${identityTitle(identity)} | ${tokenGroupLabel(identity)} | disponible: ${yesNo(identity.is_available)}`
       )),
     ]),
   ]);
@@ -917,6 +1039,8 @@ function bindEvents() {
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
     document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
+    document.getElementById("manual-set-default-identity").addEventListener("click", () => run(() => setSelectedDefaultIdentity("manual-certificate")));
+    document.getElementById("manual-clear-default-identity").addEventListener("click", () => run(clearDefaultIdentity));
     document.getElementById("validate-select-jws").addEventListener("click", () => run(selectAndValidateJws));
     document.getElementById("validate-select-pdf").addEventListener("click", () => run(selectAndValidatePdf));
     document.getElementById("run-diagnostics").addEventListener("click", () => run(runSystemDiagnostics));
@@ -936,6 +1060,8 @@ function bindEvents() {
     clearSigningError();
     updateApprovalState();
   });
+  document.getElementById("modal-set-default-identity").addEventListener("click", () => run(() => setSelectedDefaultIdentity("modal-certificate")));
+  document.getElementById("modal-clear-default-identity").addEventListener("click", () => run(clearDefaultIdentity));
   document.getElementById("modal-pin").addEventListener("input", () => {
     clearSigningError();
     updateApprovalState();

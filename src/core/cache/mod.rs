@@ -10,6 +10,7 @@ use tracing::info;
 
 use crate::{
     config::AppConfig,
+    core::identity::{SigningIdentity, build_signing_identities},
     core::pkcs11::provider::{self, ProviderError},
     models::pkcs11::{CertificateInfo, TokenInfo},
 };
@@ -49,6 +50,30 @@ impl TokenCertificateCache {
 
     pub fn get_cached_certificates(&self) -> Result<Vec<CertificateInfo>, CacheError> {
         Ok(self.snapshot()?.certificates)
+    }
+
+    pub fn get_cached_signing_identities(
+        &self,
+        config: &AppConfig,
+    ) -> Result<Vec<SigningIdentity>, CacheError> {
+        let snapshot = self.snapshot()?;
+        Ok(build_signing_identities(
+            &snapshot.tokens,
+            &snapshot.certificates,
+            config,
+        ))
+    }
+
+    pub fn refresh_signing_identities(
+        &self,
+        config: &AppConfig,
+    ) -> Result<Vec<SigningIdentity>, CacheError> {
+        let snapshot = self.refresh_tokens_and_certificates(config)?;
+        Ok(build_signing_identities(
+            &snapshot.tokens,
+            &snapshot.certificates,
+            config,
+        ))
     }
 
     pub fn find_certificate_der_base64(

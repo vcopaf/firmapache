@@ -64,6 +64,9 @@ allowed_origins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ]
+
+[signing]
+default_identity_id = ""
 ```
 
 `POST /config` actualiza solo los campos enviados y persiste el resultado. La
@@ -73,6 +76,16 @@ entran en vigor al siguiente inicio.
 
 La variable `MINI_FIRMADOR_PKCS11` mantiene prioridad absoluta sobre el valor
 guardado en el TOML.
+
+El bloque `[signing]` guarda solamente la identidad publica predeterminada para
+firmar. No guarda PIN ni sesiones. Una identidad tiene la forma:
+
+```text
+pkcs11:{token_serial}:{slot_id}:{certificate_id}
+```
+
+Si el token no expone serial, se usa un identificador basado en `slot_id` y
+`certificate_id`.
 
 Con `server.https = true`, el servicio genera automaticamente un certificado
 self-signed para `localhost` y `127.0.0.1` en:
@@ -127,7 +140,7 @@ La ventana permite:
 - Firmar manualmente archivos JSON locales como JWS compact.
 - Firmar manualmente archivos PDF con una firma detached
   `ETSI.CAdES.detached`.
-- Ver sesiones de firma pendientes, seleccionar certificado y aprobar o rechazar
+- Ver sesiones de firma pendientes, seleccionar identidad de firma y aprobar o rechazar
   visualmente su flujo.
 
 La aplicacion vive en la bandeja del sistema. Al cerrar la ventana principal, la
@@ -150,6 +163,7 @@ La cache guarda solamente metadata publica:
 - tokens detectados;
 - certificados publicos;
 - DER publico del certificado en Base64;
+- identidades de firma normalizadas;
 - hora de carga y driver PKCS#11 usado.
 
 No se cachea PIN, sesiones PKCS#11 logueadas, claves privadas ni contenido de
@@ -163,6 +177,23 @@ ultima carga y driver cacheado.
 Los endpoints `GET /tokens` y `GET /certificates`, el modal de firma y la firma
 manual prefieren la cache. Si el certificado seleccionado no esta en cache, el
 core hace una recarga controlada como fallback antes de fallar.
+
+Cada certificado utilizable se muestra como una **identidad de firma** agrupada
+por token. Esto evita depender visualmente solo del `slot_id` cuando hay varios
+tokens o varios certificados conectados.
+
+La UI permite marcar una identidad con **Usar como predeterminado**. Si no hay
+predeterminada y existe una sola identidad disponible, MiniFirmador la selecciona
+automaticamente. Si la identidad guardada ya no esta conectada, se muestra como
+no disponible y la UI advierte:
+
+```text
+El token o certificado seleccionado ya no está disponible. Actualice tokens/certificados.
+```
+
+Para invalidar o actualizar la cache, pulse **Actualizar tokens/certificados**.
+Tambien se invalida al cambiar el driver PKCS#11 o cuando una lectura detecta
+que el token seleccionado ya no esta disponible.
 
 ## Firma manual
 
@@ -180,7 +211,7 @@ formato de salida:
 2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
    despues de abrir la app.
 3. En **Firma manual**, pulsar **Seleccionar archivo**.
-4. Si el archivo es JSON o PDF, seleccionar certificado, escribir el PIN y
+4. Si el archivo es JSON o PDF, seleccionar identidad de firma, escribir el PIN y
    pulsar **Firmar**.
 5. Al terminar, la app abre el dialogo **Guardar como** con nombre sugerido
    `archivo.jws` para JSON o `archivo-firmado.pdf` para PDF.
@@ -242,6 +273,9 @@ Diagnostico del sistema:
 - disponibilidad basica de PC/SC;
 - tokens publicos detectados;
 - certificados publicos resumidos y expiracion;
+- identidades de firma disponibles;
+- identidad predeterminada configurada;
+- certificados expirados y certificados que vencen en menos de 30 dias;
 - ultimo error PKCS#11 conocido durante el diagnostico, si existe.
 
 El boton **Exportar diagnostico** guarda un `.json` sin PIN, claves privadas,
@@ -415,7 +449,7 @@ curl -k -X POST https://localhost:4637/sign \
 La terminal queda esperando. En la aplicacion Tauri aparece la ventana
 `Solicitud de firma`:
 
-1. Seleccione un certificado.
+1. Seleccione una identidad de firma.
 2. Escriba el PIN del token.
 3. Pulse **Firmar JWS** o **Firmar PDF**, segun el formato.
 

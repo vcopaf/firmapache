@@ -65,10 +65,17 @@ impl Default for CorsConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
+pub struct SigningConfig {
+    pub default_identity_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub pkcs11: Pkcs11Config,
     pub cors: CorsConfig,
+    pub signing: SigningConfig,
 }
 
 fn default_server_host() -> String {
@@ -185,6 +192,11 @@ impl AppConfig {
                 config.cors.allowed_origins = allowed_origins;
             }
         }
+        if let Some(signing) = update.signing {
+            if let Some(default_identity_id) = signing.default_identity_id {
+                config.signing.default_identity_id = default_identity_id;
+            }
+        }
 
         config.validate()?;
         Ok(config)
@@ -247,6 +259,7 @@ pub struct AppConfigUpdate {
     pub server: Option<ServerConfigUpdate>,
     pub pkcs11: Option<Pkcs11ConfigUpdate>,
     pub cors: Option<CorsConfigUpdate>,
+    pub signing: Option<SigningConfigUpdate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -267,6 +280,12 @@ pub struct Pkcs11ConfigUpdate {
 #[serde(deny_unknown_fields)]
 pub struct CorsConfigUpdate {
     pub allowed_origins: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SigningConfigUpdate {
+    pub default_identity_id: Option<String>,
 }
 
 #[derive(Debug, Error)]

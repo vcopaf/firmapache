@@ -4,7 +4,11 @@ use serde::Serialize;
 
 use crate::{
     config::AppConfig,
-    core::{cache::TokenCertificateCache, pkcs11::provider},
+    core::{
+        cache::TokenCertificateCache,
+        identity::{SigningIdentity, build_signing_identities},
+        pkcs11::provider,
+    },
 };
 
 #[derive(Debug, Serialize)]
@@ -20,6 +24,10 @@ pub struct DiagnosticsReport {
     pub pcsc_available: bool,
     pub token_count: usize,
     pub certificate_count: usize,
+    pub default_identity_id: Option<String>,
+    pub identities: Vec<SigningIdentity>,
+    pub expired_certificate_count: usize,
+    pub expiring_soon_certificate_count: usize,
     pub tokens: Vec<DiagnosticToken>,
     pub certificates: Vec<DiagnosticCertificate>,
     pub last_error: Option<String>,
@@ -73,6 +81,15 @@ pub fn run_diagnostics(
         .as_ref()
         .map(|snapshot| snapshot.certificates.clone())
         .unwrap_or_default();
+    let identities = build_signing_identities(&tokens, &certificates, config);
+    let expired_certificate_count = identities
+        .iter()
+        .filter(|identity| identity.is_expired)
+        .count();
+    let expiring_soon_certificate_count = identities
+        .iter()
+        .filter(|identity| identity.expires_soon)
+        .count();
 
     DiagnosticsReport {
         app_version: app_version.into(),
@@ -86,6 +103,11 @@ pub fn run_diagnostics(
         pcsc_available: pcsc_available(),
         token_count: tokens.len(),
         certificate_count: certificates.len(),
+        default_identity_id: (!config.signing.default_identity_id.trim().is_empty())
+            .then(|| config.signing.default_identity_id.clone()),
+        identities,
+        expired_certificate_count,
+        expiring_soon_certificate_count,
         tokens: tokens
             .into_iter()
             .map(|token| DiagnosticToken {

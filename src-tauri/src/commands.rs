@@ -2,6 +2,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
     config::AppConfig,
     core::{
+        identity::{self, SigningIdentity},
         pdf::{self, PdfDocumentInfo},
         pkcs11::provider,
         signing::jws,
@@ -341,15 +342,14 @@ pub async fn validate_pdf_file(path: String) -> Result<PdfValidationReport, Stri
 pub async fn sign_file_as_jws(
     state: State<'_, AppState>,
     path: String,
-    slot_id: u64,
-    certificate_id: String,
+    identity_id: String,
     pin: String,
 ) -> Result<ManualSignResponse, String> {
     if path.trim().is_empty() {
         return Err("archivo no seleccionado".to_owned());
     }
-    if certificate_id.trim().is_empty() {
-        return Err("certificado no seleccionado".to_owned());
+    if identity_id.trim().is_empty() {
+        return Err("identidad de firma no seleccionada".to_owned());
     }
     if pin.is_empty() {
         return Err("PIN vacio".to_owned());
@@ -357,6 +357,7 @@ pub async fn sign_file_as_jws(
 
     let config = current_config(&state)?;
     let cache = state.token_certificate_cache().clone();
+    let identity = resolve_identity_for_signing(&state, &config, &identity_id)?;
     let path = PathBuf::from(path);
     tauri::async_runtime::spawn_blocking(move || {
         let payload = fs::read(&path).map_err(|error| format!("error leyendo archivo: {error}"))?;
@@ -364,8 +365,8 @@ pub async fn sign_file_as_jws(
             &config,
             &payload,
             ApproveSigningSessionInput {
-                slot_id,
-                certificate_id,
+                slot_id: identity.slot_id,
+                certificate_id: identity.certificate_id,
                 pin,
             },
             &cache,
@@ -385,15 +386,14 @@ pub async fn sign_file_as_jws(
 pub async fn sign_pdf(
     state: State<'_, AppState>,
     path: String,
-    slot_id: u64,
-    certificate_id: String,
+    identity_id: String,
     pin: String,
 ) -> Result<PdfSignResponse, String> {
     if path.trim().is_empty() {
         return Err("archivo PDF no seleccionado".to_owned());
     }
-    if certificate_id.trim().is_empty() {
-        return Err("certificado no seleccionado".to_owned());
+    if identity_id.trim().is_empty() {
+        return Err("identidad de firma no seleccionada".to_owned());
     }
     if pin.is_empty() {
         return Err("PIN vacio".to_owned());
@@ -401,6 +401,7 @@ pub async fn sign_pdf(
 
     let config = current_config(&state)?;
     let cache = state.token_certificate_cache().clone();
+    let identity = resolve_identity_for_signing(&state, &config, &identity_id)?;
     let path = PathBuf::from(path);
     tauri::async_runtime::spawn_blocking(move || {
         let signed_pdf = pdf::signing::sign_pdf_file(
@@ -408,8 +409,8 @@ pub async fn sign_pdf(
             &cache,
             &path,
             ApproveSigningSessionInput {
-                slot_id,
-                certificate_id,
+                slot_id: identity.slot_id,
+                certificate_id: identity.certificate_id,
                 pin,
             },
         )
@@ -556,6 +557,63 @@ pub fn get_cached_certificates(state: State<'_, AppState>) -> Result<Vec<Certifi
 }
 
 #[tauri::command]
+pub fn list_signing_identities(state: State<'_, AppState>) -> Result<Vec<SigningIdentity>, String> {
+    let config = current_config(&state)?;
+    state
+        .token_certificate_cache()
+        .get_cached_signing_identities(&config)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn refresh_signing_identities(
+    state: State<'_, AppState>,
+) -> Result<Vec<SigningIdentity>, String> {
+    let config = current_config(&state)?;
+    let cache = state.token_certificate_cache().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.refresh_signing_identities(&config))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn set_default_signing_identity(
+    state: State<'_, AppState>,
+    identity_id: String,
+) -> Result<Vec<SigningIdentity>, String> {
+    if identity_id.trim().is_empty() {
+        return Err("identidad de firma no seleccionada".to_owned());
+    }
+    let mut config = current_config(&state)?;
+    config.signing.default_identity_id = identity_id;
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    state
+        .token_certificate_cache()
+        .get_cached_signing_identities(&config)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn clear_default_signing_identity(
+    state: State<'_, AppState>,
+) -> Result<Vec<SigningIdentity>, String> {
+    let mut config = current_config(&state)?;
+    config.signing.default_identity_id.clear();
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    state
+        .token_certificate_cache()
+        .get_cached_signing_identities(&config)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn get_token_certificate_cache(
     state: State<'_, AppState>,
 ) -> Result<TokenCertificateCacheView, String> {
@@ -643,11 +701,10 @@ pub fn list_signing_sessions(
 pub async fn approve_signing_session(
     state: State<'_, AppState>,
     session_id: String,
-    slot_id: u64,
-    certificate_id: String,
+    identity_id: String,
     pin: String,
 ) -> Result<CompatibleSignResponse, String> {
-    if certificate_id.trim().is_empty() {
+    if identity_id.trim().is_empty() {
         return Err("Missing certificate selection".to_owned());
     }
     if pin.is_empty() {
@@ -658,14 +715,15 @@ pub async fn approve_signing_session(
     let config = current_config(&state)?;
     let manager = state.signing_sessions().clone();
     let cache = state.token_certificate_cache().clone();
+    let identity = resolve_identity_for_signing(&state, &config, &identity_id)?;
     let started = Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
         manager.approve_with_signature(
             id,
             &config,
             ApproveSigningSessionInput {
-                slot_id,
-                certificate_id,
+                slot_id: identity.slot_id,
+                certificate_id: identity.certificate_id,
                 pin,
             },
             &cache,
@@ -725,6 +783,25 @@ pub fn reject_signing_session(
 
 fn current_config(state: &State<'_, AppState>) -> Result<AppConfig, String> {
     state.config().map_err(|error| error.to_string())
+}
+
+fn resolve_identity_for_signing(
+    state: &State<'_, AppState>,
+    config: &AppConfig,
+    identity_id: &str,
+) -> Result<identity::ResolvedSigningIdentity, String> {
+    let cache = state.token_certificate_cache();
+    match identity::resolve_signing_identity(cache, config, identity_id) {
+        Ok(identity) => Ok(identity),
+        Err(identity::IdentityError::NotFound) | Err(identity::IdentityError::NotAvailable) => {
+            let _ = cache.invalidate();
+            Err("El token o certificado seleccionado ya no está disponible. Actualice tokens/certificados.".to_owned())
+        }
+        Err(identity::IdentityError::Expired) => {
+            Err("El certificado seleccionado está expirado.".to_owned())
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn file_name(path: &Path) -> String {
