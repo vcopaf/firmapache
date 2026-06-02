@@ -2295,6 +2295,7 @@ dependencies = [
  "base64 0.22.1",
  "mini-firmador",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

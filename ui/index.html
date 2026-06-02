@@ -134,6 +134,33 @@
       <p class="quiet">Las solicitudes pendientes pueden aprobarse o rechazarse desde esta interfaz. No se muestra el contenido del archivo.</p>
       <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
     </section>
+
+    <section class="card validation-card">
+      <div class="card-title">
+        <h2>Validacion y diagnostico</h2>
+        <span id="validation-message" class="quiet"></span>
+      </div>
+
+      <h3>Validar JWS</h3>
+      <div class="button-row">
+        <button id="validate-select-jws" class="secondary">Seleccionar .jws / JSON firmado</button>
+      </div>
+      <div id="jws-validation-result" class="list empty">Sin validacion JWS.</div>
+
+      <h3>Validar PDF</h3>
+      <div class="button-row">
+        <button id="validate-select-pdf" class="secondary">Seleccionar PDF firmado</button>
+      </div>
+      <div id="pdf-validation-result" class="list empty">Sin validacion PDF.</div>
+
+      <h3>Diagnostico del sistema</h3>
+      <div class="button-row">
+        <button id="run-diagnostics" class="secondary">Ejecutar diagnostico</button>
+        <button id="export-diagnostics" class="secondary">Exportar diagnostico</button>
+      </div>
+      <div id="diagnostics-result" class="list empty">Sin diagnostico.</div>
+      <p class="quiet">El diagnostico no incluye PIN, claves privadas, firmas completas ni contenido de documentos.</p>
+    </section>
   </main>
 
   <main id="signing-view" class="signing-view hidden">

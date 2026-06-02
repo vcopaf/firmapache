@@ -209,6 +209,44 @@ Limitaciones actuales de PDF: no se implementa TSA, LTV, OCSP ni CRL. La firma
 es detached y usa el certificado seleccionado desde el token PKCS#11. El PIN no
 se guarda ni se registra.
 
+## Validacion y diagnostico
+
+La seccion **Validacion y diagnostico** permite revisar archivos firmados y el
+estado local del firmador sin exponer informacion sensible.
+
+Validacion JWS:
+
+- acepta JWS compact directo o `Base64(JWS compact)`;
+- separa `header.payload.signature`;
+- muestra `alg`, presencia de `x5c`, subject del certificado si puede parsearse
+  y tamano del payload;
+- verifica la firma RS256 usando el certificado `x5c`.
+
+Validacion PDF:
+
+- detecta `/ByteRange`, `/Contents`, `/Filter /Adobe.PPKLite`,
+  `/SubFilter /ETSI.CAdES.detached`, `/M`, `/Name`, `/Reason`, `/Location` y
+  `/ContactInfo`;
+- muestra diagnostico estructural;
+- para validacion criptografica PDF completa, por ahora recomienda:
+
+```bash
+pdfsig archivo.pdf
+```
+
+Diagnostico del sistema:
+
+- version de la app;
+- configuracion no sensible del servidor;
+- ruta de driver PKCS#11 configurada y detectada;
+- disponibilidad basica de PC/SC;
+- tokens publicos detectados;
+- certificados publicos resumidos y expiracion;
+- ultimo error PKCS#11 conocido durante el diagnostico, si existe.
+
+El boton **Exportar diagnostico** guarda un `.json` sin PIN, claves privadas,
+firmas completas, archivos firmados completos ni contenido de documentos.
+
 ## Consumo desde NextJS
 
 El servicio habilita CORS solamente para aplicaciones web servidas desde:

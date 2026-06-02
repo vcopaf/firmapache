@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 mini-firmador = { path = ".." }
 base64 = "0.22"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tracing = "0.1"

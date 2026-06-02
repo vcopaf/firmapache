@@ -13,6 +13,7 @@ let signingInProgress = false;
 let manualFile = null;
 let manualResult = null;
 let manualSigningInProgress = false;
+let latestDiagnostics = null;
 const windowMode = currentWindow.label === "signing" ? "signing" : "main";
 
 function showError(error) {
@@ -76,6 +77,10 @@ function approximateSize(bytes) {
     return `${bytes} B aprox.`;
   }
   return `${(bytes / 1024).toFixed(1)} KB aprox.`;
+}
+
+function yesNo(value) {
+  return value ? "Si" : "No";
 }
 
 async function loadStatus() {
@@ -757,6 +762,102 @@ function pdfReady(file) {
   return Boolean(file?.pdf_info?.valid_header && file?.pdf_info?.has_eof_marker);
 }
 
+async function selectAndValidateJws() {
+  const selected = await invoke("select_file_to_validate");
+  if (!selected) {
+    return;
+  }
+  document.getElementById("validation-message").textContent = `Validando ${selected.name}...`;
+  const report = await invoke("validate_jws_file", { path: selected.path });
+  renderJwsValidation(selected, report);
+  document.getElementById("validation-message").textContent = "Validacion JWS completada";
+}
+
+async function selectAndValidatePdf() {
+  const selected = await invoke("select_file_to_validate");
+  if (!selected) {
+    return;
+  }
+  document.getElementById("validation-message").textContent = `Validando ${selected.name}...`;
+  const report = await invoke("validate_pdf_file", { path: selected.path });
+  renderPdfValidation(selected, report);
+  document.getElementById("validation-message").textContent = "Validacion PDF completada";
+}
+
+function renderJwsValidation(selected, report) {
+  const container = document.getElementById("jws-validation-result");
+  showItems(container, [
+    item(selected.name, [
+      `Tamano: ${approximateSize(selected.size_bytes)}`,
+      `Entrada detectada: ${report.detected_input}`,
+      `Algoritmo: ${report.alg || "-"}`,
+      `x5c presente: ${yesNo(report.has_x5c)}`,
+      `Subject: ${report.certificate_subject || "-"}`,
+      `Payload: ${approximateSize(report.payload_size_bytes)}`,
+      `Firma RS256: ${report.valid ? "valida" : "invalida"}`,
+      report.error ? `Error: ${report.error}` : "",
+    ]),
+  ]);
+}
+
+function renderPdfValidation(selected, report) {
+  const container = document.getElementById("pdf-validation-result");
+  showItems(container, [
+    item(selected.name, [
+      `Tamano: ${approximateSize(selected.size_bytes)}`,
+      `Firma detectada: ${yesNo(report.signature_detected)}`,
+      `ByteRange presente: ${yesNo(report.byte_range_present)}`,
+      `Contents presente: ${yesNo(report.contents_present)}`,
+      `Filter Adobe.PPKLite: ${yesNo(report.filter_adobe_ppklite)}`,
+      `SubFilter ETSI.CAdES.detached: ${yesNo(report.subfilter_cades_detached)}`,
+      `/M presente: ${yesNo(report.m_present)}`,
+      `/Name presente: ${yesNo(report.name_present)}`,
+      `/Reason presente: ${yesNo(report.reason_present)}`,
+      `/Location presente: ${yesNo(report.location_present)}`,
+      `/ContactInfo presente: ${yesNo(report.contact_info_present)}`,
+      `Diagnostico estructural: ${report.structurally_valid ? "correcto" : "incompleto"}`,
+      report.recommendation || "",
+    ]),
+  ]);
+}
+
+async function runSystemDiagnostics() {
+  document.getElementById("validation-message").textContent = "Ejecutando diagnostico...";
+  latestDiagnostics = await invoke("run_diagnostics");
+  renderDiagnostics(latestDiagnostics);
+  document.getElementById("validation-message").textContent = "Diagnostico completado";
+}
+
+function renderDiagnostics(report) {
+  const container = document.getElementById("diagnostics-result");
+  showItems(container, [
+    item("Sistema", [
+      `Version: ${report.app_version}`,
+      `Servidor: ${report.server_https ? "HTTPS" : "HTTP"} ${report.server_host}:${report.server_port}`,
+      `Driver configurado: ${report.configured_pkcs11_library_path || "-"}`,
+      `Driver detectado: ${report.detected_pkcs11_library_path || "-"}`,
+      `Driver encontrado: ${yesNo(report.driver_found)}`,
+      `Fuente driver: ${report.driver_source || "-"}`,
+      `PC/SC disponible: ${yesNo(report.pcsc_available)}`,
+      report.last_error ? `Ultimo error: ${report.last_error}` : "",
+    ]),
+    item("Tokens y certificados", [
+      `Tokens detectados: ${report.token_count}`,
+      `Certificados detectados: ${report.certificate_count}`,
+      ...((report.certificates || []).slice(0, 6).map((certificate) =>
+        `${certificate.subject || certificate.label || "Certificado"} | vence: ${certificate.not_after || "-"} | slot: ${certificate.slot_id}`
+      )),
+    ]),
+  ]);
+}
+
+async function exportDiagnostics() {
+  const response = await invoke("export_diagnostics");
+  document.getElementById("validation-message").textContent = response.saved
+    ? `Diagnostico exportado: ${response.path}`
+    : "Exportacion cancelada";
+}
+
 function setSigningProgress(text, active) {
   const progress = document.getElementById("signing-progress");
   const progressText = document.getElementById("signing-progress-text");
@@ -816,6 +917,10 @@ function bindEvents() {
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
     document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
+    document.getElementById("validate-select-jws").addEventListener("click", () => run(selectAndValidateJws));
+    document.getElementById("validate-select-pdf").addEventListener("click", () => run(selectAndValidatePdf));
+    document.getElementById("run-diagnostics").addEventListener("click", () => run(runSystemDiagnostics));
+    document.getElementById("export-diagnostics").addEventListener("click", () => run(exportDiagnostics));
     document.getElementById("manual-certificate").addEventListener("change", () => {
       clearManualError();
       updateManualState();

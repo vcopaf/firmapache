@@ -68,6 +68,7 @@ h3 {
 .config-card,
 .sessions-card,
 .manual-sign-card,
+.validation-card,
 .status-line-card {
   grid-column: span 2;
 }

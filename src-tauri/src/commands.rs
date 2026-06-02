@@ -1,7 +1,16 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
     config::AppConfig,
-    core::{pdf::{self, PdfDocumentInfo}, pkcs11::provider, signing::jws},
+    core::{
+        pdf::{self, PdfDocumentInfo},
+        pkcs11::provider,
+        signing::jws,
+        validation::{
+            diagnostics::{self, DiagnosticsReport},
+            jws::{self as jws_validation, JwsValidationReport},
+            pdf::{self as pdf_validation, PdfValidationReport},
+        },
+    },
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
@@ -88,6 +97,14 @@ pub struct SelectedManualFile {
 }
 
 #[derive(Serialize)]
+pub struct SelectedValidationFile {
+    path: String,
+    name: String,
+    size_bytes: u64,
+    detected_type: String,
+}
+
+#[derive(Serialize)]
 pub struct ManualSignResponse {
     jws_base64: String,
     suggested_file_name: String,
@@ -101,6 +118,12 @@ pub struct PdfSignResponse {
 
 #[derive(Serialize)]
 pub struct SaveSignedFileResponse {
+    saved: bool,
+    path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExportDiagnosticsResponse {
     saved: bool,
     path: Option<String>,
 }
@@ -245,6 +268,36 @@ pub async fn select_manual_file(app: AppHandle) -> Result<Option<SelectedManualF
 }
 
 #[tauri::command]
+pub async fn select_file_to_validate(
+    app: AppHandle,
+) -> Result<Option<SelectedValidationFile>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("Firmados", &["jws", "json", "pdf"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("No se pudo leer informacion del archivo: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Seleccione un archivo valido".to_owned());
+    }
+
+    Ok(Some(SelectedValidationFile {
+        name: file_name(&path),
+        detected_type: validation_file_type(&path),
+        path: path.to_string_lossy().into_owned(),
+        size_bytes: metadata.len(),
+    }))
+}
+
+#[tauri::command]
 pub async fn inspect_pdf_file(path: String) -> Result<PdfDocumentInfo, String> {
     if path.trim().is_empty() {
         return Err("archivo PDF no seleccionado".to_owned());
@@ -254,6 +307,34 @@ pub async fn inspect_pdf_file(path: String) -> Result<PdfDocumentInfo, String> {
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn validate_jws_file(path: String) -> Result<JwsValidationReport, String> {
+    if path.trim().is_empty() {
+        return Err("archivo JWS no seleccionado".to_owned());
+    }
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = fs::read(&path).map_err(|error| format!("error leyendo JWS: {error}"))?;
+        jws_validation::validate_jws_bytes(&bytes).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn validate_pdf_file(path: String) -> Result<PdfValidationReport, String> {
+    if path.trim().is_empty() {
+        return Err("archivo PDF no seleccionado".to_owned());
+    }
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = fs::read(&path).map_err(|error| format!("error leyendo PDF: {error}"))?;
+        pdf_validation::validate_pdf_bytes(&bytes).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -487,6 +568,54 @@ pub fn get_token_certificate_cache(
 }
 
 #[tauri::command]
+pub fn run_diagnostics(state: State<'_, AppState>) -> Result<DiagnosticsReport, String> {
+    let config = current_config(&state)?;
+    Ok(diagnostics::run_diagnostics(
+        &config,
+        state.token_certificate_cache(),
+        env!("CARGO_PKG_VERSION"),
+    ))
+}
+
+#[tauri::command]
+pub async fn export_diagnostics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportDiagnosticsResponse, String> {
+    let config = current_config(&state)?;
+    let report = diagnostics::run_diagnostics(
+        &config,
+        state.token_certificate_cache(),
+        env!("CARGO_PKG_VERSION"),
+    );
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("error serializando diagnostico: {error}"))?;
+
+    let destination = app
+        .dialog()
+        .file()
+        .add_filter("Diagnostico JSON", &["json"])
+        .add_filter("Texto", &["txt"])
+        .set_file_name("mini-firmador-diagnostico.json")
+        .blocking_save_file();
+    let Some(destination) = destination else {
+        return Ok(ExportDiagnosticsResponse {
+            saved: false,
+            path: None,
+        });
+    };
+    let path = destination
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta de guardado: {error}"))?;
+    fs::write(&path, json).map_err(|error| format!("error guardando diagnostico: {error}"))?;
+
+    Ok(ExportDiagnosticsResponse {
+        saved: true,
+        path: Some(path.to_string_lossy().into_owned()),
+    })
+}
+
+#[tauri::command]
 pub async fn refresh_tokens_and_certificates(
     state: State<'_, AppState>,
 ) -> Result<TokenCertificateCacheView, String> {
@@ -610,6 +739,15 @@ fn detected_format(path: &Path) -> String {
         .and_then(|extension| extension.to_str())
         .map(|extension| extension.to_ascii_lowercase())
         .unwrap_or_else(|| "desconocido".to_owned())
+}
+
+fn validation_file_type(path: &Path) -> String {
+    match detected_format(path).as_str() {
+        "pdf" => "PDF".to_owned(),
+        "jws" => "JWS".to_owned(),
+        "json" => "JWS/JSON".to_owned(),
+        _ => "Desconocido".to_owned(),
+    }
 }
 
 fn suggested_jws_file_name(path: &Path) -> String {
