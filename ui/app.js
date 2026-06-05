@@ -1338,8 +1338,10 @@ function togglePasswordVisibility(inputId) {
   const visible = input.type === "text";
   input.type = visible ? "password" : "text";
   document.querySelectorAll(`[data-toggle-password="${inputId}"]`).forEach((toggle) => {
-    toggle.textContent = visible ? "Mostrar" : "Ocultar";
+    toggle.textContent = visible ? "👁" : "🙈";
+    toggle.setAttribute("aria-label", visible ? "Mostrar PIN" : "Ocultar PIN");
   });
+  input.focus({ preventScroll: true });
 }
 
 function setManualProgress(active, text = "Firmando archivo... no retire el token") {
@@ -1655,6 +1657,7 @@ function bindEvents() {
   }
 
   document.querySelectorAll("[data-toggle-password]").forEach((toggle) => {
+    toggle.addEventListener("mousedown", (event) => event.preventDefault());
     toggle.addEventListener("click", () => togglePasswordVisibility(toggle.dataset.togglePassword));
   });
 

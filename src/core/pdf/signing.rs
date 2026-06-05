@@ -338,7 +338,23 @@ fn file_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        config::AppConfig,
+        core::{
+            cache::TokenCertificateCache,
+            pkcs12::provider::{
+                GenerateVirtualTokenInput, generate_virtual_token, sign_rs256 as sign_pkcs12_rs256,
+            },
+            signing::jws,
+            validation::{jws as jws_validation, pdf as pdf_validation},
+        },
+    };
+    use base64::engine::general_purpose::STANDARD;
     use lopdf::{Object, Stream};
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn minimal_pdf() -> Vec<u8> {
         let mut document = Document::with_version("1.7");
@@ -402,5 +418,106 @@ mod tests {
             text.contains("/Contents <66616B652D636D73")
                 || text.contains("/Contents<66616B652D636D73")
         );
+    }
+
+    #[test]
+    fn virtual_pkcs12_signs_jws_and_pdf() {
+        let artifacts = TestArtifacts::new();
+        let password = "clave-dev-test";
+        let generated = generate_virtual_token(GenerateVirtualTokenInput {
+            id: "dev-token-pdf-test".to_owned(),
+            label: "Token virtual PDF test".to_owned(),
+            common_name: "FirMapache PDF Test".to_owned(),
+            organization: "FirMapache".to_owned(),
+            country: "BO".to_owned(),
+            validity_days: 30,
+            password: password.to_owned(),
+            output_path: artifacts.p12_path.to_string_lossy().into_owned(),
+        })
+        .expect("generate virtual token");
+        let mut config = AppConfig::default();
+        config.development.pkcs12_tokens.push(generated.token);
+        let identity = generated.identity;
+        let input = ApproveSigningSessionInput {
+            slot_id: identity.slot_id,
+            certificate_id: identity.certificate_id.clone().expect("certificate id"),
+            pin: password.to_owned(),
+            identity_id: Some(identity.identity_id.clone()),
+            provider: Some("pkcs12".to_owned()),
+        };
+        let cache = TokenCertificateCache::default();
+
+        let jws_base64 = jws::sign_payload_base64_with_cache(
+            &config,
+            br#"{"hola":"mundo"}"#,
+            input.clone(),
+            &cache,
+        )
+        .expect("sign JWS with virtual PKCS#12");
+        let jws_compact = STANDARD.decode(jws_base64).expect("JWS Base64");
+        let jws_report =
+            jws_validation::validate_jws_bytes(&jws_compact).expect("validate generated JWS");
+        assert!(jws_report.valid, "JWS must validate as RS256");
+
+        let signed_pdf = sign_pdf_bytes(
+            &config,
+            &cache,
+            &minimal_pdf(),
+            "virtual-token.pdf".to_owned(),
+            input,
+        )
+        .expect("sign PDF with virtual PKCS#12");
+        let pdf_report =
+            pdf_validation::validate_pdf_bytes(&signed_pdf).expect("validate PDF structure");
+        assert!(pdf_report.byte_range_present);
+        assert!(pdf_report.contents_present);
+        assert!(pdf_report.filter_adobe_ppklite);
+        assert!(pdf_report.subfilter_cades_detached);
+        assert!(pdf_report.m_present);
+
+        let _ = sign_pkcs12_rs256(
+            &config,
+            &identity.identity_id,
+            password,
+            b"firmapache-direct-p12-check",
+        )
+        .expect("direct P12 signature also works");
+
+        if env::var("FIRMAPACHE_KEEP_TEST_ARTIFACTS").as_deref() == Ok("1") {
+            fs::write(&artifacts.signed_pdf_path, &signed_pdf).expect("write signed PDF artifact");
+            eprintln!("P12_TEST_PATH={}", artifacts.p12_path.display());
+            eprintln!(
+                "SIGNED_PDF_TEST_PATH={}",
+                artifacts.signed_pdf_path.display()
+            );
+        } else {
+            artifacts.cleanup();
+        }
+    }
+
+    struct TestArtifacts {
+        directory: std::path::PathBuf,
+        p12_path: std::path::PathBuf,
+        signed_pdf_path: std::path::PathBuf,
+    }
+
+    impl TestArtifacts {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos();
+            let directory = env::temp_dir().join(format!("firmapache-virtual-p12-{nonce}"));
+            fs::create_dir_all(&directory).expect("create temp artifact directory");
+            Self {
+                p12_path: directory.join("token-virtual-test.p12"),
+                signed_pdf_path: directory.join("virtual-token-firmado.pdf"),
+                directory,
+            }
+        }
+
+        fn cleanup(&self) {
+            let _ = fs::remove_dir_all(&self.directory);
+        }
     }
 }

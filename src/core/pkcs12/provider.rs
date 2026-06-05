@@ -372,3 +372,70 @@ fn format_certificate_time(value: ASN1Time) -> String {
         date_time.second()
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+    use rsa::{
+        RsaPublicKey, pkcs1v15, pkcs1v15::VerifyingKey, pkcs8::DecodePublicKey, signature::Verifier,
+    };
+    use sha2::Sha256;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use x509_parser::parse_x509_certificate;
+
+    #[test]
+    fn virtual_pkcs12_signs_rs256_and_certificate_verifies_signature() {
+        let password = "clave-dev-test";
+        let path = temp_artifact_path("rs256-token.p12");
+        let generated = generate_virtual_token(GenerateVirtualTokenInput {
+            id: "dev-token-test".to_owned(),
+            label: "Token virtual test".to_owned(),
+            common_name: "FirMapache Test".to_owned(),
+            organization: "FirMapache".to_owned(),
+            country: "BO".to_owned(),
+            validity_days: 30,
+            password: password.to_owned(),
+            output_path: path.clone(),
+        })
+        .expect("generate virtual PKCS#12");
+        let mut config = AppConfig::default();
+        config.development.pkcs12_tokens.push(generated.token);
+
+        let certificate_der = STANDARD
+            .decode(
+                certificate_der_base64(&config, &generated.identity.identity_id, password)
+                    .expect("certificate DER base64"),
+            )
+            .expect("certificate DER");
+        let signature = sign_rs256(
+            &config,
+            &generated.identity.identity_id,
+            password,
+            b"firmapache-test-payload",
+        )
+        .expect("RS256 signature");
+
+        let (_, certificate) =
+            parse_x509_certificate(&certificate_der).expect("parse generated certificate");
+        let public_key = RsaPublicKey::from_public_key_der(certificate.public_key().raw)
+            .expect("RSA public key");
+        let verifying_key = VerifyingKey::<Sha256>::new(public_key);
+        let signature = pkcs1v15::Signature::try_from(signature.as_slice()).expect("signature");
+        verifying_key
+            .verify(b"firmapache-test-payload", &signature)
+            .expect("signature verifies with certificate public key");
+
+        let _ = fs::remove_file(path);
+    }
+
+    fn temp_artifact_path(file_name: &str) -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("firmapache-p12-test-{nonce}"));
+        fs::create_dir_all(&dir).expect("create temp test directory");
+        dir.join(file_name).to_string_lossy().into_owned()
+    }
+}

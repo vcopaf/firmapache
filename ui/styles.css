@@ -426,15 +426,33 @@ select {
 }
 
 .password-row {
-  align-items: center;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+}
+
+.password-row input {
+  padding-right: 48px;
+  width: 100%;
 }
 
 .password-toggle {
-  min-width: 92px;
-  padding-inline: 12px;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  display: inline-flex;
+  height: 100%;
+  justify-content: center;
+  min-width: 42px;
+  padding: 0;
+  position: absolute;
+  right: 2px;
+  top: 0;
+  width: 42px;
+}
+
+.password-toggle:hover {
+  background: transparent;
+  color: var(--text-primary);
 }
 
 code {
