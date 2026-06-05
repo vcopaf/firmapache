@@ -13,8 +13,8 @@ let certificatesLoaded = false;
 let tokenCertificateCache = null;
 let cachePoll = null;
 let signingInProgress = false;
-let manualFile = null;
-let manualResult = null;
+let manualFiles = [];
+let manualResults = [];
 let manualSigningInProgress = false;
 let latestDiagnostics = null;
 let serviceStatus = null;
@@ -99,6 +99,10 @@ function approximateSize(bytes) {
     return `${bytes} B aprox.`;
   }
   return `${(bytes / 1024).toFixed(1)} KB aprox.`;
+}
+
+function fileNameFromPath(path) {
+  return String(path || "").split(/[\\/]/).filter(Boolean).pop() || "archivo";
 }
 
 function yesNo(value) {
@@ -1355,21 +1359,17 @@ function signingProgressText(format) {
 }
 
 async function selectManualFile() {
-  const selected = await invoke("select_manual_file");
-  if (!selected) {
+  const selected = await invoke("select_manual_files");
+  if (!selected?.length) {
     return;
   }
-  manualFile = selected;
-  manualResult = null;
+  const knownPaths = new Set(manualFiles.map((file) => file.path));
+  manualFiles.push(...selected.filter((file) => !knownPaths.has(file.path)));
+  manualResults = [];
   clearManualError();
-  document.getElementById("manual-file-name").textContent = selected.name;
-  document.getElementById("manual-file-size").textContent = approximateSize(selected.size_bytes);
-  document.getElementById("manual-file-type").textContent = selected.detected_type;
-  document.getElementById("manual-output-format").textContent = selected.output_format;
-  document.getElementById("manual-suggested-name").textContent = selected.suggested_file_name || "-";
   document.getElementById("manual-sign-message").textContent = "";
-  renderManualMode(selected);
-  if ((selected.detected_type === "JSON" || selected.detected_type === "PDF") && !certificatesLoaded) {
+  renderManualFiles();
+  if (manualSupportedFiles().length && !certificatesLoaded) {
     await loadTokenCertificateCache();
     if (!certificatesLoaded) {
       await refreshTokenCertificateCache();
@@ -1383,34 +1383,79 @@ async function signManualFile() {
   if (!input) {
     return;
   }
+  const destination = await invoke("select_manual_output_directory");
+  if (!destination) {
+    document.getElementById("manual-sign-message").textContent = "Firma cancelada: carpeta destino no seleccionada.";
+    return;
+  }
 
   manualSigningInProgress = true;
+  manualResults = [];
   updateManualState();
-  setManualProgress(true, manualFile.detected_type === "PDF"
-    ? "Firmando PDF... No retire el token."
-    : "Firmando archivo... no retire el token");
+  setManualProgress(true, `Firmando archivos... 0 / ${manualSupportedFiles().length} completados`);
   clearManualError();
+  const filesToSign = manualSupportedFiles();
+  const signedFiles = [];
+  let completed = 0;
   try {
-    if (manualFile.detected_type === "PDF") {
-      manualResult = await invoke("sign_pdf", {
-        path: manualFile.path,
-        identityId: input.identityId,
-        pin: input.pin,
-      });
-      document.getElementById("manual-sign-message").textContent = "PDF firmado. Abriendo Guardar como...";
-      await saveManualPdfResult();
-    } else {
-      manualResult = await invoke("sign_file_as_jws", {
-        path: manualFile.path,
-        identityId: input.identityId,
-        pin: input.pin,
-      });
-      document.getElementById("manual-sign-message").textContent = "Archivo firmado. Abriendo Guardar como...";
-      await saveManualResult();
+    for (const file of filesToSign) {
+      setManualProgress(true, `Firmando ${file.name}... ${completed} / ${filesToSign.length} completados`);
+      try {
+        const signed = await signOneManualFile(file, input);
+        const entryName = signedZipEntryName(file);
+        signedFiles.push({
+          name: entryName,
+          data_base64: signed.base64,
+        });
+        manualResults.push({
+          ok: true,
+          inputName: file.name,
+          outputName: entryName,
+          path: "Pendiente de ZIP",
+        });
+      } catch (error) {
+        manualResults.push({
+          ok: false,
+          inputName: file.name,
+          error: String(error),
+        });
+      } finally {
+        completed += 1;
+        setManualProgress(true, `Firmando archivos... ${completed} / ${filesToSign.length} completados`);
+        renderManualResults();
+      }
     }
-  } catch (error) {
-    manualResult = null;
-    showManualError(error);
+    let outputPath = null;
+    if (signedFiles.length === 1) {
+      setManualProgress(true, "Guardando archivo firmado...");
+      const saved = await invoke("save_manual_output_file", {
+        directory: destination,
+        dataBase64: signedFiles[0].data_base64,
+        suggestedFileName: signedFiles[0].name,
+      });
+      outputPath = saved.path;
+      manualResults = manualResults.map((result) => result.ok ? {
+        ...result,
+        outputName: fileNameFromPath(outputPath),
+        path: outputPath,
+      } : result);
+      renderManualResults();
+    } else if (signedFiles.length > 1) {
+      setManualProgress(true, "Comprimiendo archivos firmados...");
+      const zip = await invoke("save_manual_output_zip", {
+        directory: destination,
+        files: signedFiles,
+      });
+      outputPath = zip.path;
+      manualResults = manualResults.map((result) => result.ok ? { ...result, path: outputPath } : result);
+      renderManualResults();
+    }
+    const successCount = manualResults.filter((result) => result.ok).length;
+    const errorCount = manualResults.length - successCount;
+    document.getElementById("manual-sign-message").textContent =
+      outputPath
+        ? `Resultado: ${successCount} archivos firmados, ${errorCount} con error. Guardado: ${outputPath}`
+        : `Resultado: ${successCount} archivos firmados, ${errorCount} con error.`;
   } finally {
     clearManualPin();
     manualSigningInProgress = false;
@@ -1419,51 +1464,181 @@ async function signManualFile() {
   }
 }
 
-async function saveManualResult() {
-  if (!manualResult) {
-    showManualError("No hay resultado firmado para guardar");
-    return;
+async function signOneManualFile(file, input) {
+  if (file.detected_type === "PDF") {
+    const result = await invoke("sign_pdf", {
+      path: file.path,
+      identityId: input.identityId,
+      pin: input.pin,
+    });
+    return {
+      base64: result.pdf_base64,
+      suggestedFileName: file.suggested_file_name || result.suggested_file_name,
+    };
   }
-  const response = await invoke("save_signed_file", {
-    jwsBase64: manualResult.jws_base64,
-    suggestedFileName: manualFile?.suggested_file_name || manualResult.suggested_file_name,
+  const result = await invoke("sign_file_as_jws", {
+    path: file.path,
+    identityId: input.identityId,
+    pin: input.pin,
   });
-  if (response.saved) {
-    document.getElementById("manual-sign-message").textContent = `Guardado: ${response.path}`;
-  } else {
-    document.getElementById("manual-sign-message").textContent = "Archivo firmado. Guardado cancelado.";
-  }
+  return {
+    base64: result.jws_base64,
+    suggestedFileName: file.suggested_file_name || result.suggested_file_name,
+  };
 }
 
-async function saveManualPdfResult() {
-  if (!manualResult) {
-    showManualError("No hay PDF firmado para guardar");
+function removeManualFile(index) {
+  manualFiles.splice(index, 1);
+  manualResults = [];
+  renderManualFiles();
+  updateManualState();
+}
+
+function clearManualFiles() {
+  manualFiles = [];
+  manualResults = [];
+  clearManualError();
+  document.getElementById("manual-sign-message").textContent = "";
+  renderManualFiles();
+  updateManualState();
+}
+
+function manualSupportedFiles() {
+  return manualFiles.filter((file) => file.supported && (file.detected_type === "JSON" || file.detected_type === "PDF") && (file.detected_type !== "PDF" || pdfReady(file)));
+}
+
+function manualUnsupportedFiles() {
+  return manualFiles.filter((file) => !file.supported || (file.detected_type === "PDF" && !pdfReady(file)));
+}
+
+function renderManualFiles() {
+  const container = document.getElementById("manual-files");
+  if (!container) {
     return;
   }
-  const response = await invoke("save_pdf_file", {
-    pdfBase64: manualResult.pdf_base64,
-    suggestedFileName: manualFile?.suggested_file_name || manualResult.suggested_file_name,
-  });
-  if (response.saved) {
-    document.getElementById("manual-sign-message").textContent = `Guardado: ${response.path}`;
+  container.replaceChildren();
+  if (!manualFiles.length) {
+    container.className = "manual-files empty";
+    container.textContent = "Sin archivos seleccionados.";
   } else {
-    document.getElementById("manual-sign-message").textContent = "PDF firmado. Guardado cancelado.";
+    container.className = "manual-files";
+    manualFiles.forEach((file, index) => {
+      container.appendChild(manualFileRow(file, index));
+    });
   }
+  renderManualSummary();
+  renderManualMode();
+  renderManualResults();
+}
+
+function manualFileRow(file, index) {
+  const supported = file.supported && (file.detected_type !== "PDF" || pdfReady(file));
+  const row = document.createElement("article");
+  row.className = `manual-file-row ${supported ? "supported" : "unsupported"}`;
+
+  const status = document.createElement("span");
+  status.className = "manual-file-status";
+  status.textContent = supported ? "✓" : "!";
+  row.appendChild(status);
+
+  const body = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = file.name;
+  body.appendChild(title);
+
+  const meta = document.createElement("span");
+  meta.textContent = `${file.detected_type} → ${file.output_format} · ${approximateSize(file.size_bytes)} · ${manualFileValidationText(file)}`;
+  body.appendChild(meta);
+  row.appendChild(body);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "text-button danger-text";
+  remove.textContent = "Quitar";
+  remove.addEventListener("click", () => removeManualFile(index));
+  row.appendChild(remove);
+  return row;
+}
+
+function manualFileValidationText(file) {
+  if (file.detected_type === "JSON") {
+    return "Listo para JWS";
+  }
+  if (file.detected_type === "PDF") {
+    return pdfReady(file) ? "PDF listo" : "PDF inválido";
+  }
+  return "No soportado";
+}
+
+function signedZipEntryName(file) {
+  const originalName = fileNameFromPath(file.name || file.path || "firmado");
+  const dotIndex = originalName.lastIndexOf(".");
+  const stem = dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+  const extension = file.detected_type === "PDF" ? "pdf" : "jws";
+  return `${stem}_firmado.${extension}`;
+}
+
+function renderManualSummary() {
+  const supportedCount = manualSupportedFiles().length;
+  const unsupportedCount = manualUnsupportedFiles().length;
+  document.getElementById("manual-file-count").textContent =
+    `${manualFiles.length} ${manualFiles.length === 1 ? "seleccionado" : "seleccionados"}`;
+  document.getElementById("manual-supported-count").textContent = String(supportedCount);
+  document.getElementById("manual-unsupported-count").textContent = String(unsupportedCount);
+  const validation = document.getElementById("manual-validation-status");
+  if (!manualFiles.length) {
+    validation.textContent = "Sin archivos.";
+  } else if (unsupportedCount) {
+    validation.textContent = `${supportedCount} listos, ${unsupportedCount} no soportados o inválidos.`;
+  } else {
+    validation.textContent = `${supportedCount} archivos listos para firmar.`;
+  }
+  document.getElementById("manual-clear-files").disabled = manualSigningInProgress || manualFiles.length === 0;
+}
+
+function renderManualResults() {
+  const container = document.getElementById("manual-results");
+  if (!container) {
+    return;
+  }
+  container.replaceChildren();
+  container.classList.toggle("hidden", manualResults.length === 0);
+  if (!manualResults.length) {
+    return;
+  }
+  const title = document.createElement("h3");
+  title.textContent = "Resultado";
+  container.appendChild(title);
+  const list = document.createElement("div");
+  list.className = "manual-result-list";
+  manualResults.forEach((result) => {
+    const row = document.createElement("article");
+    row.className = `manual-result-row ${result.ok ? "ok" : "error"}`;
+    const status = document.createElement("span");
+    status.textContent = result.ok ? "✓" : "✗";
+    row.appendChild(status);
+    const body = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = result.ok ? result.outputName : result.inputName;
+    body.appendChild(name);
+    const detail = document.createElement("small");
+    detail.textContent = result.ok ? result.path : `Error: ${result.error}`;
+    body.appendChild(detail);
+    row.appendChild(body);
+    list.appendChild(row);
+  });
+  container.appendChild(list);
 }
 
 function selectedManualApprovalInput() {
-  if (!manualFile) {
-    showManualError("archivo no seleccionado");
+  if (!manualFiles.length) {
+    showManualError("No hay archivos seleccionados");
     updateManualState();
     return null;
   }
-  if (manualFile.detected_type !== "JSON" && manualFile.detected_type !== "PDF") {
-    showManualError("Actualmente solo se admiten archivos JSON y PDF");
-    updateManualState();
-    return null;
-  }
-  if (manualFile.detected_type === "PDF" && !pdfReady(manualFile)) {
-    showManualError("El PDF no cumple las comprobaciones basicas para firma");
+  const filesToSign = manualSupportedFiles();
+  if (!filesToSign.length) {
+    showManualError("No hay archivos JSON o PDF válidos para firmar");
     updateManualState();
     return null;
   }
@@ -1492,24 +1667,20 @@ function updateManualState() {
   const signButton = document.getElementById("manual-sign-file");
   const certificate = document.getElementById("manual-certificate");
   const pinInput = document.getElementById("manual-pin");
+  const selectButton = document.getElementById("manual-select-file");
   const identityId = certificate.value;
   const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("manual-pin").value;
+  const supportedCount = manualSupportedFiles().length;
   updatePinLabels("manual-certificate", "manual-pin");
-  if (!manualFile || manualFile.detected_type === "No soportado") {
-    signButton.textContent = "Firmar";
-    signButton.disabled = true;
-  } else if (manualFile.detected_type === "PDF") {
-    signButton.textContent = "Firmar PDF";
-    signButton.disabled =
-      manualSigningInProgress || !pdfReady(manualFile) || !identityId || selectedOption?.disabled || !pin;
-  } else {
-    signButton.textContent = "Firmar";
-    signButton.disabled = manualSigningInProgress || !identityId || selectedOption?.disabled || !pin;
-  }
-  const needsCredentials = manualFile?.detected_type === "JSON" || manualFile?.detected_type === "PDF";
+  signButton.textContent = supportedCount === 1 ? "Firmar 1 archivo" : `Firmar ${supportedCount} archivos`;
+  signButton.disabled =
+    manualSigningInProgress || supportedCount === 0 || !identityId || selectedOption?.disabled || !pin;
+  const needsCredentials = supportedCount > 0;
   certificate.disabled = manualSigningInProgress || !needsCredentials;
   pinInput.disabled = manualSigningInProgress || !needsCredentials;
+  selectButton.disabled = manualSigningInProgress;
+  document.getElementById("manual-clear-files").disabled = manualSigningInProgress || manualFiles.length === 0;
 }
 
 function updatePinLabels(selectId, inputId) {
@@ -1618,35 +1789,26 @@ function clearManualPin() {
   updateManualState();
 }
 
-function renderManualMode(file) {
-  const isJson = file.detected_type === "JSON";
-  const isPdf = file.detected_type === "PDF";
-  const isUnsupported = file.detected_type === "No soportado";
+function renderManualMode() {
+  const hasSupported = manualSupportedFiles().length > 0;
+  const hasPdf = manualFiles.some((file) => file.detected_type === "PDF");
+  const hasUnsupported = manualUnsupportedFiles().length > 0;
 
-  document.getElementById("manual-json-panel").classList.toggle("hidden", !(isJson || isPdf));
-  document.getElementById("manual-pdf-panel").classList.toggle("hidden", !isPdf);
-  document.getElementById("manual-unsupported-message").classList.toggle("hidden", !isUnsupported);
+  document.getElementById("manual-json-panel").classList.toggle("hidden", !hasSupported);
+  document.getElementById("manual-pdf-panel").classList.toggle("hidden", !hasPdf);
+  document.getElementById("manual-unsupported-message").classList.toggle("hidden", !hasUnsupported);
   document.getElementById("manual-pdf-progress").classList.add("hidden");
-
-  if (isJson) {
-    document.getElementById("manual-validation-status").textContent = "JSON listo para generar JWS.";
-  } else if (isPdf) {
-    renderManualPdfInfo(file.pdf_info);
-  } else {
-    document.getElementById("manual-validation-status").textContent =
-      "Actualmente solo se admiten archivos JSON y PDF.";
-  }
+  renderManualPdfInfo();
 }
 
-function renderManualPdfInfo(info) {
-  const validHeader = Boolean(info?.valid_header);
-  const hasEof = Boolean(info?.has_eof_marker);
-  document.getElementById("manual-pdf-valid-header").textContent = validHeader ? "Si" : "No";
-  document.getElementById("manual-pdf-has-eof").textContent = hasEof ? "Si" : "No";
-  document.getElementById("manual-validation-status").textContent =
-    validHeader && hasEof
-      ? "PDF inspeccionado. Listo para firmar como ETSI.CAdES.detached."
-      : "PDF inspeccionado, pero no cumple todas las comprobaciones basicas.";
+function renderManualPdfInfo() {
+  const pdfFiles = manualFiles.filter((file) => file.detected_type === "PDF");
+  const validHeaderCount = pdfFiles.filter((file) => file.pdf_info?.valid_header).length;
+  const eofCount = pdfFiles.filter((file) => file.pdf_info?.has_eof_marker).length;
+  document.getElementById("manual-pdf-valid-header").textContent =
+    pdfFiles.length ? `${validHeaderCount} / ${pdfFiles.length}` : "-";
+  document.getElementById("manual-pdf-has-eof").textContent =
+    pdfFiles.length ? `${eofCount} / ${pdfFiles.length}` : "-";
 }
 
 function pdfReady(file) {
@@ -1902,6 +2064,7 @@ function bindEvents() {
     document.getElementById("reload-certificates").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
+    document.getElementById("manual-clear-files").addEventListener("click", clearManualFiles);
     document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
     document.getElementById("manual-set-default-identity").addEventListener("click", () => run(() => setSelectedDefaultIdentity("manual-certificate")));
     document.getElementById("manual-clear-default-identity").addEventListener("click", () => run(clearDefaultIdentity));

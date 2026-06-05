@@ -1,4 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use chrono::Local;
 use firmapache::{
     config::{AppConfig, Pkcs12TokenConfig},
     core::{
@@ -24,6 +25,7 @@ use firmapache::{
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    io::Write,
     net::TcpListener,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -33,6 +35,7 @@ use std::{
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 const SIGNING_WINDOW_LABEL: &str = "signing";
 const BRAND_LOGO_PNG: &[u8] = include_bytes!("../icons/icon.png");
@@ -205,6 +208,23 @@ pub struct PdfSignResponse {
 pub struct SaveSignedFileResponse {
     saved: bool,
     path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ManualOutputSaveResponse {
+    path: String,
+}
+
+#[derive(Deserialize)]
+pub struct ManualZipFileInput {
+    name: String,
+    data_base64: String,
+}
+
+#[derive(Serialize)]
+pub struct ManualZipSaveResponse {
+    path: String,
+    file_count: usize,
 }
 
 #[derive(Serialize)]
@@ -660,6 +680,43 @@ pub async fn select_manual_file(app: AppHandle) -> Result<Option<SelectedManualF
 }
 
 #[tauri::command]
+pub async fn select_manual_files(app: AppHandle) -> Result<Vec<SelectedManualFile>, String> {
+    let Some(selection) = app
+        .dialog()
+        .file()
+        .add_filter("JSON y PDF", &["json", "pdf"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_files()
+    else {
+        return Ok(Vec::new());
+    };
+
+    let mut files = Vec::new();
+    for selected in selection {
+        let path = selected
+            .into_path()
+            .map_err(|error| format!("No se pudo obtener una ruta seleccionada: {error}"))?;
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("No se pudo leer informacion del archivo: {error}"))?;
+        if metadata.is_file() {
+            files.push(selected_manual_file(path, metadata.len()));
+        }
+    }
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn select_manual_output_directory(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(selection) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la carpeta seleccionada: {error}"))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
 pub async fn select_file_to_validate(
     app: AppHandle,
 ) -> Result<Option<SelectedValidationFile>, String> {
@@ -890,6 +947,80 @@ pub async fn save_pdf_file(
     Ok(SaveSignedFileResponse {
         saved: true,
         path: Some(path.to_string_lossy().into_owned()),
+    })
+}
+
+#[tauri::command]
+pub async fn save_manual_output_file(
+    directory: String,
+    data_base64: String,
+    suggested_file_name: String,
+) -> Result<ManualOutputSaveResponse, String> {
+    if directory.trim().is_empty() {
+        return Err("carpeta destino no seleccionada".to_owned());
+    }
+    if data_base64.trim().is_empty() {
+        return Err("resultado firmado vacio".to_owned());
+    }
+    let decoded = STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|_| "resultado firmado no es Base64 valido".to_owned())?;
+    let directory = PathBuf::from(directory);
+    if !directory.is_dir() {
+        return Err("carpeta destino no valida".to_owned());
+    }
+    let destination = unique_output_path(&directory, &suggested_file_name);
+    fs::write(&destination, decoded).map_err(|error| format!("error guardando archivo: {error}"))?;
+
+    Ok(ManualOutputSaveResponse {
+        path: destination.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+pub async fn save_manual_output_zip(
+    directory: String,
+    files: Vec<ManualZipFileInput>,
+) -> Result<ManualZipSaveResponse, String> {
+    if directory.trim().is_empty() {
+        return Err("carpeta destino no seleccionada".to_owned());
+    }
+    if files.is_empty() {
+        return Err("no hay archivos firmados para comprimir".to_owned());
+    }
+    let directory = PathBuf::from(directory);
+    if !directory.is_dir() {
+        return Err("carpeta destino no valida".to_owned());
+    }
+
+    let zip_name = format!("firmados_{}.zip", Local::now().format("%d-%m-%Y-%H:%M:%S"));
+    let zip_path = unique_output_path(&directory, &zip_name);
+    let zip_file = fs::File::create(&zip_path).map_err(|error| format!("error creando ZIP: {error}"))?;
+    let mut zip = ZipWriter::new(zip_file);
+    let options =
+        SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut entry_names = Vec::new();
+
+    for file in files {
+        if file.data_base64.trim().is_empty() {
+            return Err(format!("resultado firmado vacio para {}", file.name));
+        }
+        let decoded = STANDARD
+            .decode(file.data_base64.as_bytes())
+            .map_err(|_| format!("resultado firmado no es Base64 valido para {}", file.name))?;
+        let entry_name = unique_zip_entry_name(&mut entry_names, &file.name);
+        zip.start_file(&entry_name, options)
+            .map_err(|error| format!("error agregando archivo al ZIP: {error}"))?;
+        zip.write_all(&decoded)
+            .map_err(|error| format!("error escribiendo archivo en ZIP: {error}"))?;
+    }
+
+    zip.finish()
+        .map_err(|error| format!("error cerrando ZIP: {error}"))?;
+
+    Ok(ManualZipSaveResponse {
+        path: zip_path.to_string_lossy().into_owned(),
+        file_count: entry_names.len(),
     })
 }
 
@@ -1412,6 +1543,80 @@ fn suggested_signed_pdf_file_name(path: &Path) -> String {
         .filter(|stem| !stem.is_empty())
         .unwrap_or("firmado");
     format!("{stem}-firmado.pdf")
+}
+
+fn unique_output_path(directory: &Path, suggested_file_name: &str) -> PathBuf {
+    let clean_name = Path::new(suggested_file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("firmado");
+    let candidate = directory.join(clean_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let clean_path = Path::new(clean_name);
+    let stem = clean_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("firmado");
+    let extension = clean_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty());
+
+    for index in 1.. {
+        let file_name = if let Some(extension) = extension {
+            format!("{stem}({index}).{extension}")
+        } else {
+            format!("{stem}({index})")
+        };
+        let candidate = directory.join(file_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    unreachable!("unbounded collision search must return a path")
+}
+
+fn unique_zip_entry_name(existing_names: &mut Vec<String>, suggested_file_name: &str) -> String {
+    let clean_name = Path::new(suggested_file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("firmado");
+    let clean_path = Path::new(clean_name);
+    let stem = clean_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("firmado");
+    let extension = clean_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty());
+
+    for index in 0.. {
+        let suffix = if index == 0 {
+            String::new()
+        } else {
+            format!("({index})")
+        };
+        let candidate = if let Some(extension) = extension {
+            format!("{stem}{suffix}.{extension}")
+        } else {
+            format!("{stem}{suffix}")
+        };
+        if !existing_names.iter().any(|name| name == &candidate) {
+            existing_names.push(candidate.clone());
+            return candidate;
+        }
+    }
+
+    unreachable!("unbounded zip entry collision search must return a name")
 }
 
 fn selected_manual_file(path: PathBuf, size_bytes: u64) -> SelectedManualFile {

@@ -355,17 +355,17 @@
         <h2>Firma manual</h2>
         <span id="manual-sign-message" class="quiet"></span>
       </div>
-      <p class="quiet manual-intro">Seleccione un archivo. FirMapache detecta el tipo y el formato de firma correspondiente automaticamente.</p>
+      <p class="quiet manual-intro">Seleccione uno o varios archivos. FirMapache detecta el tipo y el formato de firma correspondiente automaticamente.</p>
       <div class="button-row">
-        <button id="manual-select-file" class="secondary">Seleccionar archivo</button>
+        <button id="manual-select-file" class="secondary">Seleccionar archivos</button>
+        <button id="manual-clear-files" class="secondary" disabled>Limpiar</button>
       </div>
+      <div id="manual-files" class="manual-files empty">Sin archivos seleccionados.</div>
       <dl class="manual-file-summary">
-        <div><dt>Archivo</dt><dd id="manual-file-name">Sin archivo seleccionado</dd></div>
-        <div><dt>Tamano</dt><dd id="manual-file-size">-</dd></div>
-        <div><dt>Tipo detectado</dt><dd id="manual-file-type">-</dd></div>
-        <div><dt>Formato salida</dt><dd id="manual-output-format">-</dd></div>
-        <div><dt>Nombre sugerido</dt><dd id="manual-suggested-name">-</dd></div>
-        <div><dt>Estado validacion</dt><dd id="manual-validation-status">Sin archivo.</dd></div>
+        <div><dt>Archivos</dt><dd id="manual-file-count">0 seleccionados</dd></div>
+        <div><dt>Soportados</dt><dd id="manual-supported-count">0</dd></div>
+        <div><dt>No soportados</dt><dd id="manual-unsupported-count">0</dd></div>
+        <div><dt>Estado validacion</dt><dd id="manual-validation-status">Sin archivos.</dd></div>
       </dl>
 
       <div id="manual-json-panel" class="modal-form hidden">
@@ -394,12 +394,13 @@
         </dl>
       </div>
 
-      <p id="manual-unsupported-message" class="quiet hidden">Actualmente solo se admiten archivos JSON y PDF.</p>
+      <p id="manual-unsupported-message" class="quiet hidden">Los archivos no soportados se omitirán. Actualmente solo se admiten JSON y PDF.</p>
       <p id="manual-sign-error" class="modal-error hidden" role="alert"></p>
       <div class="signing-progress hidden" id="manual-sign-progress">
         <span class="spinner"></span>
         <span id="manual-sign-progress-text">Firmando archivo... no retire el token</span>
       </div>
+      <div id="manual-results" class="manual-results hidden"></div>
       <div class="modal-actions">
         <button id="manual-sign-file" disabled>Firmar</button>
       </div>
