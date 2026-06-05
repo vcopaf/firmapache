@@ -115,6 +115,32 @@
         <button id="test-development-config" class="secondary">Probar configuración</button>
       </div>
       <p id="development-message" class="quiet"></p>
+
+      <h3>Tokens virtuales P12/PFX</h3>
+      <p class="quiet">Solo para desarrollo. No se guarda la contraseña; se lee desde una variable de entorno.</p>
+      <div class="pkcs12-grid">
+        <div>
+          <label for="pkcs12-id">ID</label>
+          <input id="pkcs12-id" type="text" placeholder="dev-token-qa">
+        </div>
+        <div>
+          <label for="pkcs12-label">Etiqueta</label>
+          <input id="pkcs12-label" type="text" placeholder="Token virtual QA">
+        </div>
+        <div>
+          <label for="pkcs12-password-env">Variable contraseña</label>
+          <input id="pkcs12-password-env" type="text" placeholder="MINI_FIRMADOR_DEV_P12_PASSWORD">
+        </div>
+      </div>
+      <label for="pkcs12-path">Archivo .p12/.pfx</label>
+      <div class="path-row">
+        <input id="pkcs12-path" type="text" readonly placeholder="Seleccione un archivo .p12 o .pfx">
+        <button id="choose-pkcs12-file" class="secondary">Seleccionar P12/PFX</button>
+      </div>
+      <div class="button-row">
+        <button id="add-pkcs12-token" class="secondary">Importar token virtual</button>
+      </div>
+      <div id="pkcs12-tokens" class="list empty">Sin tokens virtuales.</div>
     </section>
 
     <section class="card">

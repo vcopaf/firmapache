@@ -5,5 +5,6 @@ pub mod development;
 pub mod identity;
 pub mod pdf;
 pub mod pkcs11;
+pub mod pkcs12;
 pub mod signing;
 pub mod validation;

@@ -78,6 +78,7 @@ pub struct DevelopmentConfig {
     #[serde(default = "default_development_pin_env")]
     pub pin_env: String,
     pub fallback_to_modal: bool,
+    pub pkcs12_tokens: Vec<Pkcs12TokenConfig>,
 }
 
 impl Default for DevelopmentConfig {
@@ -88,8 +89,18 @@ impl Default for DevelopmentConfig {
             default_identity_id: String::new(),
             pin_env: default_development_pin_env(),
             fallback_to_modal: true,
+            pkcs12_tokens: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pkcs12TokenConfig {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    pub password_env: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -243,6 +254,9 @@ impl AppConfig {
             if let Some(fallback_to_modal) = development.fallback_to_modal {
                 config.development.fallback_to_modal = fallback_to_modal;
             }
+            if let Some(pkcs12_tokens) = development.pkcs12_tokens {
+                config.development.pkcs12_tokens = pkcs12_tokens;
+            }
         }
 
         config.validate()?;
@@ -305,6 +319,32 @@ impl AppConfig {
                 "development.pin_env cannot be empty".to_owned(),
             ));
         }
+        let mut token_ids = std::collections::HashSet::new();
+        for token in &self.development.pkcs12_tokens {
+            if token.id.trim().is_empty() {
+                return Err(ConfigError::Invalid(
+                    "development.pkcs12_tokens.id cannot be empty".to_owned(),
+                ));
+            }
+            if !token_ids.insert(token.id.trim()) {
+                return Err(ConfigError::Invalid(format!(
+                    "development.pkcs12_tokens id must be unique: {}",
+                    token.id
+                )));
+            }
+            if token.path.trim().is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "development.pkcs12_tokens path cannot be empty for {}",
+                    token.id
+                )));
+            }
+            if token.password_env.trim().is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "development.pkcs12_tokens password_env cannot be empty for {}",
+                    token.id
+                )));
+            }
+        }
 
         Ok(())
     }
@@ -354,6 +394,7 @@ pub struct DevelopmentConfigUpdate {
     pub default_identity_id: Option<String>,
     pub pin_env: Option<String>,
     pub fallback_to_modal: Option<bool>,
+    pub pkcs12_tokens: Option<Vec<Pkcs12TokenConfig>>,
 }
 
 #[derive(Debug, Error)]

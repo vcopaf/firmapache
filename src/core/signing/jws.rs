@@ -12,6 +12,7 @@ use crate::{
     core::{
         cache::{CacheError, TokenCertificateCache},
         pkcs11::provider::{self, ProviderError},
+        pkcs12::{self, Pkcs12Error},
     },
     models::{
         compatible::{CompatibleOutputFile, CompatibleSignResponse},
@@ -33,6 +34,8 @@ pub enum JwsSignError {
     Header(#[from] serde_json::Error),
     #[error(transparent)]
     Pkcs11(#[from] ProviderError),
+    #[error(transparent)]
+    Pkcs12(#[from] Pkcs12Error),
     #[error(transparent)]
     Cache(#[from] CacheError),
 }
@@ -77,8 +80,7 @@ pub fn sign_files_with_cache(
     cache: &TokenCertificateCache,
 ) -> Result<CompatibleSignResponse, JwsSignError> {
     validate_signing_input(&input)?;
-    let certificate_der_base64 =
-        certificate_der_base64_with_cache(config, cache, input.slot_id, &input.certificate_id)?;
+    let certificate_der_base64 = certificate_der_base64_for_input(config, cache, &input)?;
 
     let files = files
         .iter()
@@ -118,8 +120,7 @@ pub fn sign_payload_base64_with_cache(
 ) -> Result<String, JwsSignError> {
     let started = Instant::now();
     validate_signing_input(&input)?;
-    let certificate_der_base64 =
-        certificate_der_base64_with_cache(config, cache, input.slot_id, &input.certificate_id)?;
+    let certificate_der_base64 = certificate_der_base64_for_input(config, cache, &input)?;
     let result = sign_payload_compact(config, payload, &certificate_der_base64, &input)
         .map(|jws_compact| STANDARD.encode(jws_compact.as_bytes()));
     info!(
@@ -144,14 +145,23 @@ fn sign_payload_compact(
         x5c: [certificate_der_base64],
     };
     let compact = build_jws_compact(payload, &header, |signing_input| {
-        provider::sign_rs256(
-            config,
-            input.slot_id,
-            input.certificate_id.clone(),
-            input.pin.clone(),
-            signing_input,
-        )
-        .map_err(JwsSignError::Pkcs11)
+        if input.provider.as_deref() == Some("pkcs12") {
+            let identity_id = input
+                .identity_id
+                .as_deref()
+                .ok_or(JwsSignError::MissingCertificateSelection)?;
+            pkcs12::provider::sign_rs256(config, identity_id, &input.pin, signing_input)
+                .map_err(JwsSignError::Pkcs12)
+        } else {
+            provider::sign_rs256(
+                config,
+                input.slot_id,
+                input.certificate_id.clone(),
+                input.pin.clone(),
+                signing_input,
+            )
+            .map_err(JwsSignError::Pkcs11)
+        }
     })?;
 
     info!(
@@ -307,6 +317,9 @@ fn certificate_der_base64_with_cache(
     slot_id: u64,
     certificate_id: &str,
 ) -> Result<String, JwsSignError> {
+    // PKCS#12 identities load their public certificate from the encrypted
+    // container using the per-signature password, so this cache helper is only
+    // for PKCS#11 certificates.
     if let Some(certificate_der_base64) =
         cache.find_certificate_der_base64(slot_id, certificate_id)?
     {
@@ -340,4 +353,20 @@ fn certificate_der_base64_with_cache(
         })
         .and_then(|certificate| certificate.certificate_der_base64)
         .ok_or(JwsSignError::CertificateNotFound)
+}
+
+pub fn certificate_der_base64_for_input(
+    config: &AppConfig,
+    cache: &TokenCertificateCache,
+    input: &ApproveSigningSessionInput,
+) -> Result<String, JwsSignError> {
+    if input.provider.as_deref() == Some("pkcs12") {
+        let identity_id = input
+            .identity_id
+            .as_deref()
+            .ok_or(JwsSignError::MissingCertificateSelection)?;
+        return pkcs12::provider::certificate_der_base64(config, identity_id, &input.pin)
+            .map_err(JwsSignError::Pkcs12);
+    }
+    certificate_der_base64_with_cache(config, cache, input.slot_id, &input.certificate_id)
 }

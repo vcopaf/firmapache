@@ -178,6 +178,12 @@ label {
   margin-bottom: 14px;
 }
 
+.pkcs12-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .toggle-row {
   align-items: center;
   background: #f7f6f1;

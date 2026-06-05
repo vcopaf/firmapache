@@ -17,6 +17,8 @@ solicitud y no lo almacena.
 - El modulo PKCS#11 correspondiente al token, por ejemplo el driver Feitian
   ePass2003 o OpenSC.
 - `pcscd` activo cuando el token o lector requiera acceso PC/SC.
+- OpenSSL de sistema para soporte PKCS#12/PFX de desarrollo (`openssl` y
+  cabeceras de desarrollo si la distribucion las separa).
 
 ## PKCS#11, Feitian y OpenSC
 
@@ -74,6 +76,12 @@ auto_sign = false
 default_identity_id = ""
 pin_env = "MINI_FIRMADOR_DEV_PIN"
 fallback_to_modal = true
+
+[[development.pkcs12_tokens]]
+id = "dev-token-qa"
+label = "Token virtual QA"
+path = "/home/user/certs/dev-token.p12"
+password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
 ```
 
 `POST /config` actualiza solo los campos enviados y persiste el resultado. La
@@ -98,6 +106,11 @@ El bloque `[development]` existe solo para pruebas locales. Permite autofirmar
 solicitudes `POST /sign` con token PKCS#11 fisico usando una identidad
 configurada y un PIN leido desde una variable de entorno. El PIN nunca se guarda
 en `config.toml`.
+
+Tambien puede registrar tokens virtuales `.p12` o `.pfx` para desarrollo. En
+ese caso solo se guarda la ruta del archivo y el nombre de la variable de
+entorno que contiene la contraseña; no se guarda la contraseña ni la clave
+privada desencriptada.
 
 Con `server.https = true`, el servicio genera automaticamente un certificado
 self-signed para `localhost` y `127.0.0.1` en:
@@ -240,6 +253,54 @@ probar si el PIN esta disponible. No pide ni guarda el PIN.
 
 Advertencia: no use este modo con tokens oficiales en produccion. Permite firmar
 sin confirmacion visual.
+
+### Tokens virtuales P12/PFX de desarrollo
+
+MiniFirmador puede importar archivos `.p12` o `.pfx` existentes como identidades
+virtuales de desarrollo (`provider = "pkcs12"`). Esto no reemplaza a PKCS#11 en
+produccion: sirve para QA, pruebas automatizadas y ambientes locales donde no se
+quiere depender de un token fisico.
+
+Configuracion de ejemplo:
+
+```toml
+[[development.pkcs12_tokens]]
+id = "dev-token-qa"
+label = "Token virtual QA"
+path = "/home/user/certs/dev-token.p12"
+password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
+```
+
+Uso:
+
+```bash
+export MINI_FIRMADOR_DEV_P12_PASSWORD="clave"
+cargo tauri dev
+```
+
+La UI permite importar el archivo, probar si la variable de entorno existe y
+mostrar el certificado publico cuando la contraseña esta disponible. Las
+identidades se muestran junto a las fisicas:
+
+```text
+[PKCS#12 DEV] Token virtual QA
+  CN=Certificado Dev QA
+```
+
+Para autofirma, seleccione la identidad `pkcs12:...` como identidad de
+desarrollo y active `auto_sign`. `POST /sign` sigue recibiendo el mismo payload
+puro; no se agrega PIN, ruta, contraseña ni `identity_id` al contrato publico.
+
+En firma manual, si selecciona una identidad P12, el campo de PIN se trata como
+`PIN / contraseña P12` para esa firma. La contraseña no se guarda.
+
+Limitaciones de seguridad:
+
+- no usar como modo produccion;
+- no guardar contraseñas en `config.toml`;
+- no exportar contraseñas en diagnostico;
+- no guardar claves privadas desencriptadas en disco;
+- no mantener la clave privada cargada mas tiempo del necesario para firmar.
 
 Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
 `Solicitud de firma` sobre el escritorio. Esa ventana pide certificado y PIN,

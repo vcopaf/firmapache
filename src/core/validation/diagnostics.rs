@@ -38,6 +38,7 @@ pub struct DiagnosticsReport {
     pub expiring_soon_certificate_count: usize,
     pub tokens: Vec<DiagnosticToken>,
     pub certificates: Vec<DiagnosticCertificate>,
+    pub pkcs12_tokens: Vec<DiagnosticPkcs12Token>,
     pub last_error: Option<String>,
 }
 
@@ -59,6 +60,20 @@ pub struct DiagnosticCertificate {
     pub subject: Option<String>,
     pub issuer: Option<String>,
     pub serial_number: Option<String>,
+    pub not_after: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiagnosticPkcs12Token {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    pub path_exists: bool,
+    pub password_env: String,
+    pub password_env_defined: bool,
+    pub certificate_readable: bool,
+    pub subject: Option<String>,
+    pub issuer: Option<String>,
     pub not_after: Option<String>,
 }
 
@@ -150,6 +165,32 @@ pub fn run_diagnostics(
                 issuer: certificate.issuer,
                 serial_number: certificate.serial_number,
                 not_after: certificate.not_after,
+            })
+            .collect(),
+        pkcs12_tokens: config
+            .development
+            .pkcs12_tokens
+            .iter()
+            .map(|token| {
+                let identity = crate::core::pkcs12::provider::test_token(token).ok();
+                DiagnosticPkcs12Token {
+                    id: token.id.clone(),
+                    label: token.label.clone(),
+                    path: token.path.clone(),
+                    path_exists: Path::new(&token.path).exists(),
+                    password_env: token.password_env.clone(),
+                    password_env_defined: env::var(&token.password_env).is_ok(),
+                    certificate_readable: identity.is_some(),
+                    subject: identity
+                        .as_ref()
+                        .and_then(|identity| identity.subject.clone()),
+                    issuer: identity
+                        .as_ref()
+                        .and_then(|identity| identity.issuer.clone()),
+                    not_after: identity
+                        .as_ref()
+                        .and_then(|identity| identity.not_after.clone()),
+                }
             })
             .collect(),
         last_error,

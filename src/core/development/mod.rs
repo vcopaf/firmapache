@@ -71,14 +71,30 @@ fn try_auto_sign_inner(
         return Err(DevelopmentError::DefaultIdentityNotConfigured);
     }
 
-    let pin_env = config.development.pin_env.trim();
-    let pin = env::var(pin_env).map_err(|_| DevelopmentError::PinEnvironmentVariableNotFound)?;
-    if pin.is_empty() {
-        return Err(DevelopmentError::PinEnvironmentVariableNotFound);
-    }
-
     let prepared = compatible::prepare_sign_request(request)?;
     let identity = resolve_development_identity(cache, config, identity_id)?;
+    let secret_env = if identity.provider == "pkcs12" {
+        identity
+            .password_env
+            .as_deref()
+            .ok_or(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound)?
+    } else {
+        config.development.pin_env.trim()
+    };
+    let pin = env::var(secret_env).map_err(|_| {
+        if identity.provider == "pkcs12" {
+            DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound
+        } else {
+            DevelopmentError::PinEnvironmentVariableNotFound
+        }
+    })?;
+    if pin.is_empty() {
+        return if identity.provider == "pkcs12" {
+            Err(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound)
+        } else {
+            Err(DevelopmentError::PinEnvironmentVariableNotFound)
+        };
+    }
 
     session_manager::sign_prepared_files(
         config,
@@ -89,6 +105,8 @@ fn try_auto_sign_inner(
             slot_id: identity.slot_id,
             certificate_id: identity.certificate_id,
             pin,
+            identity_id: Some(identity.identity_id),
+            provider: Some(identity.provider),
         },
     )
     .map_err(DevelopmentError::AutoSignFailed)
@@ -123,6 +141,8 @@ pub enum DevelopmentError {
     IdentityNotAvailable,
     #[error("Development PIN environment variable not found")]
     PinEnvironmentVariableNotFound,
+    #[error("PKCS#12 password environment variable not found")]
+    Pkcs12PasswordEnvironmentVariableNotFound,
     #[error("Development auto-sign failed: {0}")]
     AutoSignFailed(#[source] SigningSessionError),
     #[error(transparent)]

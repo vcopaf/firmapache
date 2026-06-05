@@ -5,7 +5,10 @@ use thiserror::Error;
 
 use crate::{
     config::AppConfig,
-    core::cache::{CacheError, TokenCertificateCache},
+    core::{
+        cache::{CacheError, TokenCertificateCache},
+        pkcs12,
+    },
     models::pkcs11::{CertificateInfo, TokenInfo},
 };
 
@@ -64,9 +67,14 @@ pub fn build_signing_identities(
                 expires_soon: expires_soon(certificate.not_after.as_deref()),
                 is_default: false,
                 is_available,
+                virtual_token_id: None,
+                source_path: None,
+                password_env: None,
+                is_virtual: false,
             })
         })
         .collect::<Vec<_>>();
+    identities.extend(pkcs12::provider::configured_identities(config));
 
     mark_default_identity(&mut identities, default_identity_id);
     if !default_identity_id.is_empty()
@@ -106,22 +114,30 @@ pub fn resolve_signing_identity(
         .certificate_id
         .clone()
         .ok_or(IdentityError::MissingCertificateId)?;
-    let certificate_der_base64 = snapshot
-        .certificates
-        .into_iter()
-        .find(|certificate| {
-            certificate.slot_id == identity.slot_id
-                && certificate
-                    .id
-                    .as_deref()
-                    .is_some_and(|id| id.eq_ignore_ascii_case(&certificate_id))
-        })
-        .and_then(|certificate| certificate.certificate_der_base64);
+    let certificate_der_base64 = if identity.provider == "pkcs11" {
+        snapshot
+            .certificates
+            .into_iter()
+            .find(|certificate| {
+                certificate.slot_id == identity.slot_id
+                    && certificate
+                        .id
+                        .as_deref()
+                        .is_some_and(|id| id.eq_ignore_ascii_case(&certificate_id))
+            })
+            .and_then(|certificate| certificate.certificate_der_base64)
+    } else {
+        None
+    };
 
     Ok(ResolvedSigningIdentity {
+        identity_id: identity.identity_id.clone(),
+        provider: identity.provider.clone(),
         slot_id: identity.slot_id,
         certificate_id,
         certificate_der_base64,
+        virtual_token_id: identity.virtual_token_id.clone(),
+        password_env: identity.password_env.clone(),
     })
 }
 
@@ -182,6 +198,10 @@ fn unavailable_default_identity(identity_id: &str) -> SigningIdentity {
         expires_soon: false,
         is_default: true,
         is_available: false,
+        virtual_token_id: None,
+        source_path: None,
+        password_env: None,
+        is_virtual: false,
     }
 }
 

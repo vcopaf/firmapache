@@ -3,6 +3,7 @@ const currentWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
 let config = null;
 let developmentConfig = null;
+let pkcs12Tokens = [];
 let activeSigningSession = null;
 let loadingSessions = false;
 let certificates = [];
@@ -110,8 +111,10 @@ async function loadConfig() {
   setAppStatus("Cargando configuracion...");
   config = await invoke("get_config");
   developmentConfig = await invoke("get_development_config");
+  pkcs12Tokens = await invoke("list_pkcs12_tokens");
   renderServerConfig(config.server);
   renderDevelopmentConfig(developmentConfig);
+  renderPkcs12Tokens();
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
 }
 
@@ -241,6 +244,37 @@ async function testDevelopmentConfig() {
   renderDevelopmentConfig(developmentConfig);
 }
 
+async function selectPkcs12File() {
+  const selected = await invoke("select_pkcs12_file");
+  if (selected) {
+    document.getElementById("pkcs12-path").value = selected;
+  }
+}
+
+async function addPkcs12Token() {
+  pkcs12Tokens = await invoke("add_pkcs12_token", {
+    id: document.getElementById("pkcs12-id").value,
+    label: document.getElementById("pkcs12-label").value,
+    path: document.getElementById("pkcs12-path").value,
+    passwordEnv: document.getElementById("pkcs12-password-env").value,
+  });
+  renderPkcs12Tokens();
+  await refreshSigningIdentities();
+  document.getElementById("development-message").textContent = "Token virtual importado";
+}
+
+async function removePkcs12Token(id) {
+  pkcs12Tokens = await invoke("remove_pkcs12_token", { id });
+  renderPkcs12Tokens();
+  await refreshSigningIdentities();
+}
+
+async function testPkcs12Token(id) {
+  const token = await invoke("test_pkcs12_token", { id });
+  pkcs12Tokens = pkcs12Tokens.map((current) => current.id === id ? token : current);
+  renderPkcs12Tokens();
+}
+
 function readDevelopmentConfigInput() {
   return {
     enabled: document.getElementById("development-enabled").checked,
@@ -249,6 +283,35 @@ function readDevelopmentConfigInput() {
     pinEnv: document.getElementById("development-pin-env").value.trim() || "MINI_FIRMADOR_DEV_PIN",
     fallbackToModal: document.getElementById("development-fallback").checked,
   };
+}
+
+function renderPkcs12Tokens() {
+  const container = document.getElementById("pkcs12-tokens");
+  if (!container) {
+    return;
+  }
+  if (!pkcs12Tokens.length) {
+    empty(container, "Sin tokens virtuales.");
+    return;
+  }
+  showItems(container, pkcs12Tokens.map((token) => {
+    const article = item(token.label || token.id, [
+      `ID: ${token.id}`,
+      `Path: ${token.path}`,
+      `Archivo existe: ${yesNo(token.path_exists)}`,
+      `Password env: ${token.password_env}`,
+      `Password env definido: ${yesNo(token.password_env_defined)}`,
+      token.identity?.subject ? `Subject: ${token.identity.subject}` : "Certificado: no leíble",
+    ]);
+    const actions = document.createElement("div");
+    actions.className = "item-actions";
+    actions.append(
+      button("Probar", "secondary", () => run(() => testPkcs12Token(token.id))),
+      button("Eliminar", "danger", () => run(() => removePkcs12Token(token.id))),
+    );
+    article.appendChild(actions);
+    return article;
+  }));
 }
 
 async function loadTokens() {
@@ -442,6 +505,9 @@ function identityTitle(identity) {
 }
 
 function tokenGroupLabel(identity) {
+  if (identity.provider === "pkcs12") {
+    return `[PKCS#12 DEV] ${identity.token_label || identity.virtual_token_id || "Token virtual"}`;
+  }
   const label = identity.token_label || "Token";
   const serial = identity.token_serial ? ` - serial ${identity.token_serial}` : "";
   const slot = Number.isFinite(identity.slot_id) ? ` - slot ${identity.slot_id}` : "";
@@ -743,6 +809,7 @@ function updateApprovalState() {
   const identityId = certificate.value;
   const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("modal-pin").value;
+  updatePinLabels("modal-certificate", "modal-pin");
   approve.disabled = signingInProgress || !identityId || selectedOption?.disabled || !pin;
 }
 
@@ -904,6 +971,7 @@ function updateManualState() {
   const identityId = certificate.value;
   const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("manual-pin").value;
+  updatePinLabels("manual-certificate", "manual-pin");
   if (!manualFile || manualFile.detected_type === "No soportado") {
     signButton.textContent = "Firmar";
     signButton.disabled = true;
@@ -918,6 +986,23 @@ function updateManualState() {
   const needsCredentials = manualFile?.detected_type === "JSON" || manualFile?.detected_type === "PDF";
   certificate.disabled = manualSigningInProgress || !needsCredentials;
   pinInput.disabled = manualSigningInProgress || !needsCredentials;
+}
+
+function updatePinLabels(selectId, inputId) {
+  const select = document.getElementById(selectId);
+  const input = document.getElementById(inputId);
+  const identity = signingIdentities.find((identity) => identity.identity_id === select.value);
+  const label = document.querySelector(`label[for="${inputId}"]`);
+  if (!label || !input) {
+    return;
+  }
+  if (identity?.provider === "pkcs12") {
+    label.textContent = "PIN / contraseña P12";
+    input.placeholder = "Ingrese la contraseña del P12 para esta firma";
+  } else {
+    label.textContent = "PIN del token";
+    input.placeholder = "Ingrese el PIN para esta firma";
+  }
 }
 
 async function setSelectedDefaultIdentity(selectId) {
@@ -1110,6 +1195,11 @@ function renderDiagnostics(report) {
         `${identity.is_default ? "[predeterminada] " : ""}${identityTitle(identity)} | ${tokenGroupLabel(identity)} | disponible: ${yesNo(identity.is_available)}`
       )),
     ]),
+    item("Tokens virtuales P12", [
+      ...((report.pkcs12_tokens || []).slice(0, 8).map((token) =>
+        `${token.label || token.id} | path: ${yesNo(token.path_exists)} | password env: ${yesNo(token.password_env_defined)} | cert: ${yesNo(token.certificate_readable)} | ${token.subject || "-"}`
+      )),
+    ]),
   ]);
 }
 
@@ -1197,6 +1287,8 @@ function bindEvents() {
     document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("save-development-config").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
+    document.getElementById("choose-pkcs12-file").addEventListener("click", () => run(selectPkcs12File));
+    document.getElementById("add-pkcs12-token").addEventListener("click", () => run(addPkcs12Token));
     document.getElementById("development-identity").addEventListener("change", () => {
       document.getElementById("development-message").textContent = "";
     });

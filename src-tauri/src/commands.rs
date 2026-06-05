@@ -1,10 +1,11 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mini_firmador::{
-    config::AppConfig,
+    config::{AppConfig, Pkcs12TokenConfig},
     core::{
         identity::{self, SigningIdentity},
         pdf::{self, PdfDocumentInfo},
         pkcs11::provider,
+        pkcs12,
         signing::jws,
         validation::{
             diagnostics::{self, DiagnosticsReport},
@@ -96,6 +97,17 @@ pub struct DevelopmentConfigView {
 pub struct DevelopmentConfigTestResult {
     ready: bool,
     messages: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct Pkcs12TokenView {
+    id: String,
+    label: String,
+    path: String,
+    password_env: String,
+    path_exists: bool,
+    password_env_defined: bool,
+    identity: Option<SigningIdentity>,
 }
 
 #[derive(Serialize)]
@@ -292,6 +304,107 @@ pub fn test_development_config(
     }
     let ready = messages.is_empty();
     Ok(DevelopmentConfigTestResult { ready, messages })
+}
+
+#[tauri::command]
+pub async fn select_pkcs12_file(app: AppHandle) -> Result<Option<String>, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .add_filter("PKCS#12", &["p12", "pfx"])
+        .add_filter("Todos los archivos", &["*"])
+        .blocking_pick_file();
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = selection
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn list_pkcs12_tokens(state: State<'_, AppState>) -> Result<Vec<Pkcs12TokenView>, String> {
+    let config = current_config(&state)?;
+    Ok(config
+        .development
+        .pkcs12_tokens
+        .iter()
+        .map(pkcs12_token_view)
+        .collect())
+}
+
+#[tauri::command]
+pub fn add_pkcs12_token(
+    state: State<'_, AppState>,
+    id: String,
+    label: String,
+    path: String,
+    password_env: String,
+) -> Result<Vec<Pkcs12TokenView>, String> {
+    let token = Pkcs12TokenConfig {
+        id: id.trim().to_owned(),
+        label: label.trim().to_owned(),
+        path: path.trim().to_owned(),
+        password_env: password_env.trim().to_owned(),
+    };
+    if token.id.is_empty() || token.path.is_empty() || token.password_env.is_empty() {
+        return Err("id, archivo y password_env son obligatorios".to_owned());
+    }
+
+    let mut config = current_config(&state)?;
+    config
+        .development
+        .pkcs12_tokens
+        .retain(|existing| existing.id != token.id);
+    config.development.pkcs12_tokens.push(token);
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    Ok(config
+        .development
+        .pkcs12_tokens
+        .iter()
+        .map(pkcs12_token_view)
+        .collect())
+}
+
+#[tauri::command]
+pub fn remove_pkcs12_token(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<Pkcs12TokenView>, String> {
+    let mut config = current_config(&state)?;
+    config
+        .development
+        .pkcs12_tokens
+        .retain(|token| token.id != id);
+    if config.development.default_identity_id.starts_with(&format!("pkcs12:{id}:")) {
+        config.development.default_identity_id.clear();
+    }
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    Ok(config
+        .development
+        .pkcs12_tokens
+        .iter()
+        .map(pkcs12_token_view)
+        .collect())
+}
+
+#[tauri::command]
+pub fn test_pkcs12_token(state: State<'_, AppState>, id: String) -> Result<Pkcs12TokenView, String> {
+    let config = current_config(&state)?;
+    let token = config
+        .development
+        .pkcs12_tokens
+        .iter()
+        .find(|token| token.id == id)
+        .ok_or_else(|| "Token virtual PKCS#12 no encontrado".to_owned())?;
+    Ok(pkcs12_token_view(token))
 }
 
 #[tauri::command]
@@ -501,6 +614,8 @@ pub async fn sign_file_as_jws(
                 slot_id: identity.slot_id,
                 certificate_id: identity.certificate_id,
                 pin,
+                identity_id: Some(identity.identity_id),
+                provider: Some(identity.provider),
             },
             &cache,
         )
@@ -545,6 +660,8 @@ pub async fn sign_pdf(
                 slot_id: identity.slot_id,
                 certificate_id: identity.certificate_id,
                 pin,
+                identity_id: Some(identity.identity_id),
+                provider: Some(identity.provider),
             },
         )
         .map_err(|error| format!("error firmando PDF: {error}"))?;
@@ -865,6 +982,8 @@ pub async fn approve_signing_session(
                 slot_id: identity.slot_id,
                 certificate_id: identity.certificate_id,
                 pin,
+                identity_id: Some(identity.identity_id),
+                provider: Some(identity.provider),
             },
             &cache,
         )
@@ -952,6 +1071,19 @@ fn development_config_view(config: &AppConfig) -> DevelopmentConfigView {
         pin_env: config.development.pin_env.clone(),
         fallback_to_modal: config.development.fallback_to_modal,
         pin_env_defined: std::env::var(&config.development.pin_env).is_ok(),
+    }
+}
+
+fn pkcs12_token_view(token: &Pkcs12TokenConfig) -> Pkcs12TokenView {
+    let identity = pkcs12::provider::test_token(token).ok();
+    Pkcs12TokenView {
+        id: token.id.clone(),
+        label: token.label.clone(),
+        path: token.path.clone(),
+        password_env: token.password_env.clone(),
+        path_exists: Path::new(&token.path).exists(),
+        password_env_defined: std::env::var(&token.password_env).is_ok(),
+        identity,
     }
 }
 

@@ -34,6 +34,8 @@ pub struct ApproveSigningSessionInput {
     pub slot_id: u64,
     pub certificate_id: String,
     pub pin: String,
+    pub identity_id: Option<String>,
+    pub provider: Option<String>,
 }
 
 pub enum SigningSessionResult {

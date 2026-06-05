@@ -6,7 +6,7 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::core::development::DevelopmentError;
+use crate::core::{development::DevelopmentError, pkcs12::Pkcs12Error};
 use crate::{
     config::ConfigError,
     core::{
@@ -122,6 +122,12 @@ impl IntoResponse for AppError {
                 StatusCode::UNAUTHORIZED,
                 "PKCS#11 login failed. Check PIN. No retry was attempted.".to_owned(),
             ),
+            Self::SigningSession(SigningSessionError::Jws(JwsSignError::Pkcs12(
+                Pkcs12Error::PasswordEnvironmentVariableNotFound,
+            ))) => (
+                StatusCode::BAD_REQUEST,
+                "PKCS#12 password environment variable not found".to_owned(),
+            ),
             Self::SigningSession(SigningSessionError::Jws(error)) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("JWS signing failed: {error}"),
@@ -137,6 +143,12 @@ impl IntoResponse for AppError {
             ))) => (
                 StatusCode::UNAUTHORIZED,
                 "PKCS#11 login failed. Check PIN. No retry was attempted.".to_owned(),
+            ),
+            Self::SigningSession(SigningSessionError::Pdf(PdfError::Pkcs12(
+                Pkcs12Error::PasswordEnvironmentVariableNotFound,
+            ))) => (
+                StatusCode::BAD_REQUEST,
+                "PKCS#12 password environment variable not found".to_owned(),
             ),
             Self::SigningSession(SigningSessionError::Pdf(error)) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -179,6 +191,10 @@ impl IntoResponse for AppError {
             Self::Development(DevelopmentError::PinEnvironmentVariableNotFound) => (
                 StatusCode::BAD_REQUEST,
                 "Development PIN environment variable not found".to_owned(),
+            ),
+            Self::Development(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound) => (
+                StatusCode::BAD_REQUEST,
+                "PKCS#12 password environment variable not found".to_owned(),
             ),
             Self::Development(DevelopmentError::AutoSignFailed(error)) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

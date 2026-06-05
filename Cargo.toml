@@ -12,6 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 cryptoki = "0.10"
 dirs = "6.0"
 lopdf = "0.40"
+openssl = "0.10"
 rcgen = "0.14"
 rsa = "0.9"
 serde = { version = "1.0", features = ["derive"] }

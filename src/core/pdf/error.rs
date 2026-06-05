@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     core::signing::jws::JwsSignError,
-    core::{cache::CacheError, pkcs11::provider::ProviderError},
+    core::{cache::CacheError, pkcs11::provider::ProviderError, pkcs12::Pkcs12Error},
 };
 
 #[derive(Debug, Error)]
@@ -33,6 +33,8 @@ pub enum PdfError {
     PlaceholderNotFound(&'static str),
     #[error(transparent)]
     Pkcs11(#[from] ProviderError),
+    #[error(transparent)]
+    Pkcs12(#[from] Pkcs12Error),
     #[error(transparent)]
     Cache(#[from] CacheError),
     #[error(transparent)]

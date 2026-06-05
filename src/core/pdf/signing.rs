@@ -8,7 +8,12 @@ use tracing::info;
 
 use crate::{
     config::AppConfig,
-    core::{cache::TokenCertificateCache, pkcs11::provider, signing::jws::JwsSignError},
+    core::{
+        cache::TokenCertificateCache,
+        pkcs11::provider,
+        pkcs12,
+        signing::jws::{self, JwsSignError},
+    },
     models::signing::ApproveSigningSessionInput,
 };
 
@@ -59,8 +64,7 @@ pub fn sign_pdf_bytes(
         return Err(PdfError::InvalidPdf);
     }
 
-    let certificate_der_base64 =
-        certificate_der_base64_with_cache(config, cache, input.slot_id, &input.certificate_id)?;
+    let certificate_der_base64 = jws::certificate_der_base64_for_input(config, cache, &input)?;
     let certificate_der = STANDARD
         .decode(certificate_der_base64.as_bytes())
         .map_err(|_| PdfError::InvalidCertificateBase64)?;
@@ -69,13 +73,21 @@ pub fn sign_pdf_bytes(
     let offsets = patch_byte_range(&mut prepared)?;
     let content_digest = digest_byte_range(&prepared, &offsets);
     let signed_attrs = cms::signed_attrs_der(&content_digest, &certificate_der)?;
-    let signature = provider::sign_rs256(
-        config,
-        input.slot_id,
-        input.certificate_id,
-        input.pin,
-        &signed_attrs,
-    )?;
+    let signature = if input.provider.as_deref() == Some("pkcs12") {
+        let identity_id = input
+            .identity_id
+            .as_deref()
+            .ok_or(JwsSignError::MissingCertificateSelection)?;
+        pkcs12::provider::sign_rs256(config, identity_id, &input.pin, &signed_attrs)?
+    } else {
+        provider::sign_rs256(
+            config,
+            input.slot_id,
+            input.certificate_id,
+            input.pin,
+            &signed_attrs,
+        )?
+    };
     let cms = cms::build_detached_cades(&certificate_der, &signed_attrs, &signature)?;
     insert_cms_signature(&mut prepared, &offsets, &cms)?;
 
@@ -277,31 +289,6 @@ fn digest_byte_range(prepared: &[u8], offsets: &SignatureOffsets) -> Vec<u8> {
     hasher.update(&prepared[..offsets.contents_start]);
     hasher.update(&prepared[offsets.contents_end..]);
     hasher.finalize().to_vec()
-}
-
-fn certificate_der_base64_with_cache(
-    config: &AppConfig,
-    cache: &TokenCertificateCache,
-    slot_id: u64,
-    certificate_id: &str,
-) -> Result<String, PdfError> {
-    if let Some(certificate) = cache.find_certificate_der_base64(slot_id, certificate_id)? {
-        return Ok(certificate);
-    }
-
-    let snapshot = cache.refresh_tokens_and_certificates(config)?;
-    snapshot
-        .certificates
-        .into_iter()
-        .find(|certificate| {
-            certificate.slot_id == slot_id
-                && certificate
-                    .id
-                    .as_deref()
-                    .is_some_and(|id| id.eq_ignore_ascii_case(certificate_id))
-        })
-        .and_then(|certificate| certificate.certificate_der_base64)
-        .ok_or(PdfError::CertificateNotFound)
 }
 
 fn validate_input(input: &ApproveSigningSessionInput) -> Result<(), PdfError> {
