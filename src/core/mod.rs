@@ -8,3 +8,4 @@ pub mod pkcs11;
 pub mod pkcs12;
 pub mod signing;
 pub mod validation;
+pub mod watcher;

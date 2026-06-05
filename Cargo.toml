@@ -28,3 +28,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 x509-parser = "0.18"
 uuid = { version = "1", features = ["v4", "serde"] }
 yasna = "0.6"
+pcsc = "2.9.0"

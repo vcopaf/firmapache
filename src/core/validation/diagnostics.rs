@@ -30,6 +30,14 @@ pub struct DiagnosticsReport {
     pub driver_found: bool,
     pub driver_source: Option<String>,
     pub pcsc_available: bool,
+    pub watcher_active: bool,
+    pub watcher_backend: Option<String>,
+    pub watcher_last_event: Option<String>,
+    pub watcher_last_event_at: Option<String>,
+    pub token_cache_loaded_at: Option<String>,
+    pub certificate_cache_loaded_at: Option<String>,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
     pub token_count: usize,
     pub certificate_count: usize,
     pub default_identity_id: Option<String>,
@@ -137,6 +145,34 @@ pub fn run_diagnostics(
         driver_found: library.found,
         driver_source: library.source,
         pcsc_available: pcsc_available(),
+        watcher_active: snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.watcher_active),
+        watcher_backend: snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.watcher_backend.clone()),
+        watcher_last_event: snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.last_event.clone()),
+        watcher_last_event_at: snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.last_event_at.map(|event_at| event_at.to_rfc3339())),
+        token_cache_loaded_at: snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.loaded_at.map(|loaded_at| loaded_at.to_rfc3339())),
+        certificate_cache_loaded_at: snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .certificates_loaded_at
+                .map(|loaded_at| loaded_at.to_rfc3339())
+        }),
+        cache_hits: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.cache_hits)
+            .unwrap_or_default(),
+        cache_misses: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.cache_misses)
+            .unwrap_or_default(),
         token_count: tokens.len(),
         certificate_count: certificates.len(),
         default_identity_id: (!config.signing.default_identity_id.trim().is_empty())

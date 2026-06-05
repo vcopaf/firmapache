@@ -641,18 +641,44 @@ function renderTokenCertificateCache(cache) {
     return;
   }
   if (!cache || !cache.loaded_at) {
-    status.textContent = "Cargando tokens y certificados...";
+    status.textContent = "Esperando deteccion de tokens...";
     document.getElementById("cache-loaded-at").textContent = "-";
     document.getElementById("cache-token-count").textContent = "0";
     document.getElementById("cache-certificate-count").textContent = "0";
     document.getElementById("cache-library-path").textContent = "-";
     return;
   }
-  status.textContent = "Cache cargada";
-  document.getElementById("cache-loaded-at").textContent = new Date(cache.loaded_at).toLocaleString();
+  const eventText = cache.last_event ? ` - ${humanCacheEvent(cache.last_event)}` : "";
+  const backend = cache.watcher_backend ? cache.watcher_backend.toUpperCase() : "cache";
+  const eventAt = cache.last_event_at ? ` (${new Date(cache.last_event_at).toLocaleTimeString()})` : "";
+  status.textContent = `${cache.watcher_active ? "Watcher activo" : "Cache cargada"} - ${backend}${eventText}${eventAt}`;
+  document.getElementById("cache-loaded-at").textContent = `${timeAgo(cache.loaded_at)} (${new Date(cache.loaded_at).toLocaleString()})`;
   document.getElementById("cache-token-count").textContent = cache.token_count;
   document.getElementById("cache-certificate-count").textContent = cache.certificate_count;
   document.getElementById("cache-library-path").textContent = cache.pkcs11_library_path || "-";
+}
+
+function humanCacheEvent(event) {
+  const events = {
+    insert: "token insertado",
+    remove: "token retirado",
+    change: "token cambiado",
+    unchanged: "sin cambios",
+    cache_hit: "cache vigente",
+    persisted_cache_loaded: "cache persistida",
+    refresh_skipped_same_serial: "serial sin cambios",
+    driver_missing: "driver no detectado",
+  };
+  return events[event] || event;
+}
+
+function timeAgo(dateText) {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(dateText).getTime()) / 1000));
+  if (elapsedSeconds < 60) {
+    return `actualizado hace ${elapsedSeconds} segundos`;
+  }
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  return `actualizado hace ${elapsedMinutes} min`;
 }
 
 function renderCacheLoading() {
@@ -1402,6 +1428,13 @@ function renderDiagnostics(report) {
       `Driver encontrado: ${yesNo(report.driver_found)}`,
       `Fuente driver: ${report.driver_source || "-"}`,
       `PC/SC disponible: ${yesNo(report.pcsc_available)}`,
+      `Watcher activo: ${yesNo(report.watcher_active)}`,
+      `Watcher backend: ${report.watcher_backend || "-"}`,
+      `Ultimo evento watcher: ${report.watcher_last_event || "-"}`,
+      `Hora ultimo evento: ${report.watcher_last_event_at || "-"}`,
+      `Ultima actualizacion tokens: ${report.token_cache_loaded_at || "-"}`,
+      `Ultima actualizacion certificados: ${report.certificate_cache_loaded_at || "-"}`,
+      `Cache hits/misses: ${report.cache_hits || 0}/${report.cache_misses || 0}`,
       report.last_restart_error ? `Ultimo error de reinicio: ${report.last_restart_error}` : "",
       report.last_error ? `Ultimo error: ${report.last_error}` : "",
     ]),
@@ -1596,6 +1629,9 @@ async function bootstrap() {
   bindEvents();
   if (windowMode === "main") {
     await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
+    window.setInterval(() => {
+      run(loadTokenCertificateCache);
+    }, 10000);
   } else {
     clearSigningForm();
     await loadTokenCertificateCache();

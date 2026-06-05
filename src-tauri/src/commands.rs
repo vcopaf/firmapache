@@ -12,6 +12,7 @@ use firmapache::{
             jws::{self as jws_validation, JwsValidationReport},
             pdf::{self as pdf_validation, PdfValidationReport},
         },
+        watcher::{PcscTokenWatcher, TokenWatcherEventKind},
     },
     models::{
         compatible::CompatibleSignResponse,
@@ -213,7 +214,16 @@ pub struct TokenCertificateCacheView {
     tokens: Vec<TokenInfo>,
     certificates: Vec<CertificateInfo>,
     loaded_at: Option<String>,
+    expires_at: Option<String>,
+    certificates_loaded_at: Option<String>,
     pkcs11_library_path: Option<String>,
+    token_fingerprint: Option<String>,
+    last_event: Option<String>,
+    last_event_at: Option<String>,
+    watcher_backend: Option<String>,
+    watcher_active: bool,
+    cache_hits: u64,
+    cache_misses: u64,
     token_count: usize,
     certificate_count: usize,
 }
@@ -864,7 +874,7 @@ pub async fn list_certificates(state: State<'_, AppState>) -> Result<Vec<Certifi
     if cache
         .snapshot()
         .map_err(|error| error.to_string())?
-        .loaded_at
+        .certificates_loaded_at
         .is_some()
     {
         return cache
@@ -1026,11 +1036,13 @@ pub async fn refresh_tokens_and_certificates(
 ) -> Result<TokenCertificateCacheView, String> {
     let config = current_config(&state)?;
     let cache = state.token_certificate_cache().clone();
-    tauri::async_runtime::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
-        .and_then(token_certificate_cache_view)
+    tauri::async_runtime::spawn_blocking(move || {
+        cache.force_refresh_tokens_and_certificates(&config)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
+    .and_then(token_certificate_cache_view)
 }
 
 #[tauri::command]
@@ -1376,34 +1388,224 @@ pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<
 
 pub fn warm_token_certificate_cache(state: AppState) {
     tauri::async_runtime::spawn(async move {
-        let config = match state.config() {
-            Ok(config) => config,
-            Err(error) => {
-                tracing::warn!(%error, "could not read configuration for token cache warmup");
-                return;
+        let mut previous_fingerprint = state
+            .token_certificate_cache()
+            .snapshot()
+            .ok()
+            .and_then(|snapshot| snapshot.token_fingerprint);
+
+        let state_for_watcher = state.clone();
+        tauri::async_runtime::spawn(async move {
+            let watcher = tauri::async_runtime::spawn_blocking(PcscTokenWatcher::new).await;
+            let mut watcher = match watcher {
+                Ok(Ok(watcher)) => {
+                    let _ = state_for_watcher
+                        .token_certificate_cache()
+                        .record_watcher_backend("pcsc", true);
+                    tracing::info!(watcher_started = true, watcher_backend = "pcsc", "token watcher active");
+                    watcher
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, watcher_backend = "polling", "PC/SC watcher unavailable; using conservative fallback");
+                    let _ = state_for_watcher
+                        .token_certificate_cache()
+                        .record_watcher_backend("polling", true);
+                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint).await;
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, watcher_backend = "polling", "PC/SC watcher task failed; using conservative fallback");
+                    let _ = state_for_watcher
+                        .token_certificate_cache()
+                        .record_watcher_backend("polling", true);
+                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint).await;
+                    return;
+                }
+            };
+
+            loop {
+                let events =
+                    match tauri::async_runtime::spawn_blocking(move || watcher.wait_for_events())
+                        .await
+                    {
+                        Ok(Ok(events)) => events,
+                        Ok(Err(error)) => {
+                            tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher failed; switching to conservative fallback");
+                            let _ = state_for_watcher
+                                .token_certificate_cache()
+                                .record_watcher_backend("polling", true);
+                            start_conservative_fallback_watcher(
+                                state_for_watcher,
+                                previous_fingerprint,
+                            )
+                            .await;
+                            return;
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher task failed; switching to conservative fallback");
+                            let _ = state_for_watcher
+                                .token_certificate_cache()
+                                .record_watcher_backend("polling", true);
+                            start_conservative_fallback_watcher(
+                                state_for_watcher,
+                                previous_fingerprint,
+                            )
+                            .await;
+                            return;
+                        }
+                    };
+
+                watcher = match PcscTokenWatcher::new() {
+                    Ok(next) => next,
+                    Err(error) => {
+                        tracing::warn!(%error, watcher_backend = "pcsc", "could not rebuild PC/SC watcher; switching to conservative fallback");
+                        let _ = state_for_watcher
+                            .token_certificate_cache()
+                            .record_watcher_backend("polling", true);
+                        start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint)
+                            .await;
+                        return;
+                    }
+                };
+
+                if events.is_empty() {
+                    tracing::debug!(watcher_backend = "pcsc", "PC/SC watcher woke without actionable event");
+                    continue;
+                }
+
+                for event in events {
+                    let event_name = event.kind.as_str();
+                    let _ = state_for_watcher
+                        .token_certificate_cache()
+                        .record_watcher_event("pcsc", event_name);
+                    tracing::info!(
+                        watcher_backend = "pcsc",
+                        watcher_event = event_name,
+                        reader = ?event.reader,
+                        "token watcher detected event"
+                    );
+
+                    if matches!(
+                        event.kind,
+                        TokenWatcherEventKind::Insert
+                            | TokenWatcherEventKind::ReaderAdded
+                            | TokenWatcherEventKind::ReaderRemoved
+                    ) {
+                        if let Some(fingerprint) =
+                            refresh_from_watcher_event(&state_for_watcher, true).await
+                        {
+                            previous_fingerprint = Some(fingerprint);
+                        }
+                    } else if matches!(event.kind, TokenWatcherEventKind::Remove) {
+                        let _ = state_for_watcher.token_certificate_cache().invalidate();
+                        if let Some(fingerprint) =
+                            refresh_from_watcher_event(&state_for_watcher, false).await
+                        {
+                            previous_fingerprint = Some(fingerprint);
+                        } else {
+                            previous_fingerprint = None;
+                        }
+                    }
+                }
             }
-        };
-        let cache = state.token_certificate_cache().clone();
-        match tauri::async_runtime::spawn_blocking(move || {
-            cache.refresh_tokens_and_certificates(&config)
-        })
-        .await
-        {
-            Ok(Ok(snapshot)) => {
-                tracing::info!(
-                    token_count = snapshot.tokens.len(),
-                    certificate_count = snapshot.certificates.len(),
-                    "token/certificate cache warmup completed"
-                );
-            }
-            Ok(Err(error)) => {
-                tracing::warn!(%error, "token/certificate cache warmup failed");
-            }
-            Err(error) => {
-                tracing::warn!(%error, "token/certificate cache warmup task failed");
-            }
-        }
+        });
     });
+}
+
+async fn refresh_from_watcher_event(state: &AppState, deep: bool) -> Option<String> {
+    let config = match state.config() {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::warn!(%error, "could not read configuration for watcher refresh");
+            return None;
+        }
+    };
+    let cache = state.token_certificate_cache().clone();
+    let refresh = tauri::async_runtime::spawn_blocking(move || {
+        if deep {
+            cache.force_refresh_tokens_and_certificates(&config)
+        } else {
+            cache.refresh_fast(&config)
+        }
+    })
+    .await;
+
+    match refresh {
+        Ok(Ok(snapshot)) => {
+            tracing::info!(
+                refresh_trigger = "watcher",
+                refresh_deep = deep,
+                token_count = snapshot.tokens.len(),
+                certificate_count = snapshot.certificates.len(),
+                "watcher-triggered cache refresh completed"
+            );
+            snapshot.token_fingerprint
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(%error, refresh_trigger = "watcher", "watcher-triggered refresh failed");
+            None
+        }
+        Err(error) => {
+            tracing::warn!(%error, refresh_trigger = "watcher", "watcher refresh task failed");
+            None
+        }
+    }
+}
+
+async fn start_conservative_fallback_watcher(
+    state: AppState,
+    mut previous_fingerprint: Option<String>,
+) {
+    loop {
+        let stable_token_connected = previous_fingerprint
+            .as_deref()
+            .is_some_and(|fingerprint| !fingerprint.is_empty());
+        let delay = if stable_token_connected {
+            Duration::from_secs(5 * 60)
+        } else {
+            Duration::from_secs(60)
+        };
+        tokio::time::sleep(delay).await;
+
+        let Some(fingerprint) = refresh_from_watcher_event(&state, false).await else {
+            continue;
+        };
+        if Some(fingerprint.clone()) == previous_fingerprint {
+            tracing::debug!(
+                watcher_backend = "polling",
+                watcher_event = "unchanged",
+                "conservative fallback watcher found no token change"
+            );
+            continue;
+        }
+
+        let event = if previous_fingerprint
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+            && !fingerprint.is_empty()
+        {
+            "insert"
+        } else if !previous_fingerprint
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+            && fingerprint.is_empty()
+        {
+            "remove"
+        } else {
+            "change"
+        };
+        let _ = state
+            .token_certificate_cache()
+            .record_watcher_event("polling", event);
+        previous_fingerprint = Some(fingerprint);
+        if event != "remove" {
+            let _ = refresh_from_watcher_event(&state, true).await;
+        } else {
+            let _ = state.token_certificate_cache().invalidate();
+        }
+    }
 }
 
 pub fn show_main_window_for_app(app: &AppHandle) -> Result<(), String> {
@@ -1505,7 +1707,18 @@ fn token_certificate_cache_view(
         token_count: state.tokens.len(),
         certificate_count: state.certificates.len(),
         loaded_at: state.loaded_at.map(|loaded_at| loaded_at.to_rfc3339()),
+        expires_at: state.expires_at.map(|expires_at| expires_at.to_rfc3339()),
+        certificates_loaded_at: state
+            .certificates_loaded_at
+            .map(|loaded_at| loaded_at.to_rfc3339()),
         pkcs11_library_path: state.pkcs11_library_path,
+        token_fingerprint: state.token_fingerprint,
+        last_event: state.last_event,
+        last_event_at: state.last_event_at.map(|event_at| event_at.to_rfc3339()),
+        watcher_backend: state.watcher_backend,
+        watcher_active: state.watcher_active,
+        cache_hits: state.cache_hits,
+        cache_misses: state.cache_misses,
         tokens: state.tokens,
         certificates: state.certificates,
     })

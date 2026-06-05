@@ -7,7 +7,7 @@ pub async fn certificates(
 ) -> Result<Json<Vec<CertificateInfo>>, AppError> {
     let config = state.config()?;
     let cache = state.token_certificate_cache().clone();
-    let certificates = if cache.snapshot()?.loaded_at.is_some() {
+    let certificates = if cache.snapshot()?.certificates_loaded_at.is_some() {
         cache.get_cached_certificates()?
     } else {
         tokio::task::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))

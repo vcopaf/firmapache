@@ -17,7 +17,7 @@ pub async fn tokens(State(state): State<AppState>) -> Result<Json<Vec<TokenInfo>
     let tokens = if cache.snapshot()?.loaded_at.is_some() {
         cache.get_cached_tokens()?
     } else {
-        tokio::task::spawn_blocking(move || cache.refresh_tokens_and_certificates(&config))
+        tokio::task::spawn_blocking(move || cache.refresh_fast(&config))
             .await??
             .tokens
     };

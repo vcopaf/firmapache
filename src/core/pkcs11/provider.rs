@@ -191,16 +191,19 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
 }
 
 pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> {
+    let library_info = detect_pkcs11_library(config)?;
+    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
+    list_tokens_with_library_path(&library_path)
+}
+
+pub fn list_tokens_with_library_path(library_path: &str) -> Result<Vec<TokenInfo>, ProviderError> {
     let started = Instant::now();
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
 
-    let library_info = detect_pkcs11_library(config)?;
-    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
-
-    let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
-        path: library_path,
+    let pkcs11 = Pkcs11::new(library_path).map_err(|source| ProviderError::LibraryLoad {
+        path: library_path.to_owned(),
         source,
     })?;
 
@@ -274,16 +277,21 @@ pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> 
 }
 
 pub fn list_certificates(config: &AppConfig) -> Result<Vec<CertificateInfo>, ProviderError> {
+    let library_info = detect_pkcs11_library(config)?;
+    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
+    list_certificates_with_library_path(&library_path)
+}
+
+pub fn list_certificates_with_library_path(
+    library_path: &str,
+) -> Result<Vec<CertificateInfo>, ProviderError> {
     let started = Instant::now();
     let _access_guard = PKCS11_ACCESS
         .lock()
         .map_err(|_| ProviderError::AccessLock)?;
 
-    let library_info = detect_pkcs11_library(config)?;
-    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
-
-    let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
-        path: library_path,
+    let pkcs11 = Pkcs11::new(library_path).map_err(|source| ProviderError::LibraryLoad {
+        path: library_path.to_owned(),
         source,
     })?;
 
