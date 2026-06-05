@@ -38,8 +38,15 @@ fn main() {
             "open" => {
                 let _ = commands::show_main_window_for_app(app);
             }
+            "sign_file" => {
+                let _ = commands::show_main_window_for_app(app);
+            }
             "sessions" => {
                 let _ = commands::show_signing_window_for_app(app);
+            }
+            "refresh_tokens" => {
+                let state = app.state::<AppState>().inner().clone();
+                commands::warm_token_certificate_cache(state);
             }
             "restart_server" => {
                 let state = app.state::<AppState>().inner().clone();
@@ -111,14 +118,64 @@ fn main() {
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let open = MenuItemBuilder::with_id("open", "Abrir MiniFirmador").build(app)?;
-    let sessions =
-        MenuItemBuilder::with_id("sessions", "Mostrar sesiones pendientes").build(app)?;
-    let restart = MenuItemBuilder::with_id("restart_server", "Reiniciar servidor").build(app)?;
+    let state = app.state::<AppState>();
+    let config = state.config().ok();
+    let pending_sessions = state
+        .signing_sessions()
+        .list()
+        .map(|sessions| {
+            sessions
+                .into_iter()
+                .filter(|session| {
+                    matches!(
+                        session.status,
+                        mini_firmador::models::signing::SigningSessionStatus::Pending
+                    )
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    let development_label = if config
+        .as_ref()
+        .map(|config| config.development.enabled)
+        .unwrap_or(false)
+    {
+        "Modo desarrollo: Activado"
+    } else {
+        "Modo desarrollo: Desactivado"
+    };
+    let pending_label = format!("Solicitudes: {pending_sessions} pendientes");
+
+    let title = MenuItemBuilder::with_id("tray_title", "MiniFirmador activo").build(app)?;
+    let status = MenuItemBuilder::with_id("tray_status", "Estado: Activo").build(app)?;
+    let pending = MenuItemBuilder::with_id("tray_pending", pending_label).build(app)?;
+    let open = MenuItemBuilder::with_id("open", "Abrir panel principal").build(app)?;
+    let sign_file = MenuItemBuilder::with_id("sign_file", "Firmar archivo...").build(app)?;
+    let sessions = MenuItemBuilder::with_id("sessions", "Solicitudes pendientes").build(app)?;
+    let development = MenuItemBuilder::with_id("development", development_label).build(app)?;
+    let refresh =
+        MenuItemBuilder::with_id("refresh_tokens", "Actualizar tokens/certificados").build(app)?;
+    let restart =
+        MenuItemBuilder::with_id("restart_server", "Reiniciar servidor local").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = MenuBuilder::new(app)
-        .items(&[&open, &sessions, &separator, &restart, &separator, &quit])
+        .items(&[
+            &title,
+            &status,
+            &pending,
+            &separator,
+            &sign_file,
+            &separator,
+            &open,
+            &sessions,
+            &development,
+            &separator,
+            &refresh,
+            &restart,
+            &separator,
+            &quit,
+        ])
         .build()?;
 
     let mut tray = TrayIconBuilder::with_id("mini-firmador")

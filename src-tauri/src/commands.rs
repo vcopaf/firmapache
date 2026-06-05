@@ -273,9 +273,7 @@ pub fn test_server_status(state: State<'_, AppState>) -> Result<ServiceStatus, S
 }
 
 #[tauri::command]
-pub fn get_development_config(
-    state: State<'_, AppState>,
-) -> Result<DevelopmentConfigView, String> {
+pub fn get_development_config(state: State<'_, AppState>) -> Result<DevelopmentConfigView, String> {
     let config = current_config(&state)?;
     Ok(development_config_view(&config))
 }
@@ -368,17 +366,18 @@ pub fn generate_virtual_token_p12(
     input: GenerateVirtualTokenP12Input,
 ) -> Result<GenerateVirtualTokenP12Response, String> {
     validate_virtual_token_input(&input)?;
-    let generated = pkcs12::provider::generate_virtual_token(pkcs12::provider::GenerateVirtualTokenInput {
-        id: input.id.trim().to_owned(),
-        label: input.label.trim().to_owned(),
-        common_name: input.common_name.trim().to_owned(),
-        organization: input.organization.trim().to_owned(),
-        country: input.country.trim().to_ascii_uppercase(),
-        validity_days: input.validity_days,
-        password: input.password,
-        output_path: input.output_path.trim().to_owned(),
-    })
-    .map_err(|error| error.to_string())?;
+    let generated =
+        pkcs12::provider::generate_virtual_token(pkcs12::provider::GenerateVirtualTokenInput {
+            id: input.id.trim().to_owned(),
+            label: input.label.trim().to_owned(),
+            common_name: input.common_name.trim().to_owned(),
+            organization: input.organization.trim().to_owned(),
+            country: input.country.trim().to_ascii_uppercase(),
+            validity_days: input.validity_days,
+            password: input.password,
+            output_path: input.output_path.trim().to_owned(),
+        })
+        .map_err(|error| error.to_string())?;
 
     let mut config = current_config(&state)?;
     config
@@ -458,7 +457,11 @@ pub fn remove_pkcs12_token(
         .development
         .pkcs12_tokens
         .retain(|token| token.id != id);
-    if config.development.default_identity_id.starts_with(&format!("pkcs12:{id}:")) {
+    if config
+        .development
+        .default_identity_id
+        .starts_with(&format!("pkcs12:{id}:"))
+    {
         config.development.default_identity_id.clear();
     }
     config.save().map_err(|error| error.to_string())?;
@@ -474,7 +477,10 @@ pub fn remove_pkcs12_token(
 }
 
 #[tauri::command]
-pub fn test_pkcs12_token(state: State<'_, AppState>, id: String) -> Result<Pkcs12TokenView, String> {
+pub fn test_pkcs12_token(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Pkcs12TokenView, String> {
     let config = current_config(&state)?;
     let token = config
         .development
@@ -1183,7 +1189,11 @@ fn validate_virtual_token_input(input: &GenerateVirtualTokenP12Input) -> Result<
         return Err("Common Name / CN no puede estar vacío".to_owned());
     }
     let country = input.country.trim();
-    if country.len() != 2 || !country.chars().all(|character| character.is_ascii_alphabetic()) {
+    if country.len() != 2
+        || !country
+            .chars()
+            .all(|character| character.is_ascii_alphabetic())
+    {
         return Err("País / C debe tener 2 letras".to_owned());
     }
     if input.validity_days == 0 {

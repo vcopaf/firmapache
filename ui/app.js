@@ -17,7 +17,20 @@ let manualFile = null;
 let manualResult = null;
 let manualSigningInProgress = false;
 let latestDiagnostics = null;
+let serviceStatus = null;
+let sessionsSnapshot = [];
+let activeSection = "inicio";
 const windowMode = currentWindow.label === "signing" ? "signing" : "main";
+const sectionTitles = {
+  inicio: "Inicio",
+  firmar: "Firma manual",
+  solicitudes: "Solicitudes",
+  identidades: "Identidades",
+  desarrollo: "Desarrollo",
+  validacion: "Validacion",
+  configuracion: "Configuracion",
+  diagnostico: "Diagnostico",
+};
 
 function showError(error) {
   const banner = document.getElementById("error-banner");
@@ -35,6 +48,12 @@ function setAppStatus(text, state = "pending") {
 
   textElement.textContent = text;
   dot.className = `status-dot ${state}`;
+  const sidebarText = document.getElementById("sidebar-status-text");
+  const sidebarDot = document.getElementById("sidebar-status-dot");
+  if (sidebarText && sidebarDot) {
+    sidebarText.textContent = text;
+    sidebarDot.className = `status-dot ${state}`;
+  }
 }
 
 function empty(element, text) {
@@ -92,9 +111,61 @@ function serverUrl(server) {
   return `${scheme}://${host}:${server.port}/`;
 }
 
+function showSection(section) {
+  if (!sectionTitles[section]) {
+    return;
+  }
+  activeSection = section;
+  document.body.dataset.section = section;
+  document.getElementById("section-title").textContent = sectionTitles[section];
+  document.querySelectorAll("[data-section]").forEach((element) => {
+    element.classList.toggle("hidden-section", element.dataset.section !== section);
+  });
+  document.querySelectorAll("[data-section-target]").forEach((buttonElement) => {
+    buttonElement.classList.toggle("active", buttonElement.dataset.sectionTarget === section);
+  });
+}
+
+function currentDefaultIdentity() {
+  return signingIdentities.find((identity) => identity.is_default)
+    || availableSigningIdentities()[0]
+    || signingIdentities[0]
+    || null;
+}
+
+function updateDashboard() {
+  if (windowMode !== "main") {
+    return;
+  }
+  const badge = document.getElementById("dashboard-status-badge");
+  if (!badge) {
+    return;
+  }
+  const server = config?.server || null;
+  const fallbackUrl = serviceStatus?.url
+    || (serviceStatus ? `${serviceStatus.https ? "https" : "http"}://localhost:${serviceStatus.port}/` : "-");
+  const pendingCount = sessionsSnapshot.filter((session) => session.status === "pending").length;
+  const defaultIdentity = currentDefaultIdentity();
+  badge.textContent = serviceStatus?.active ? "Activo" : "Consultando";
+  badge.className = `badge ${serviceStatus?.active ? "active" : "pending"}`;
+  document.getElementById("dashboard-url").textContent = server ? serverUrl(server) : fallbackUrl;
+  document.getElementById("dashboard-provider").textContent =
+    tokenCertificateCache?.pkcs11_library_path || config?.pkcs11?.library_path || "No configurado";
+  document.getElementById("dashboard-token-count").textContent =
+    String(tokens.length || tokenCertificateCache?.token_count || 0);
+  document.getElementById("dashboard-cert-count").textContent =
+    String(signingIdentities.length || certificates.length || tokenCertificateCache?.certificate_count || 0);
+  document.getElementById("dashboard-pending").textContent = String(pendingCount);
+  document.getElementById("dashboard-dev-mode").textContent =
+    developmentConfig?.enabled ? "Activado" : "Desactivado";
+  document.getElementById("dashboard-default-identity").textContent =
+    defaultIdentity ? `${identityShortTitle(defaultIdentity)} - ${tokenGroupLabel(defaultIdentity)}` : "Sin identidad disponible";
+}
+
 async function loadStatus() {
   setAppStatus("Iniciando servidor...");
   const status = await invoke("test_server_status");
+  serviceStatus = status;
   document.getElementById("service-name").textContent = status.service;
   document.getElementById("service-version").textContent = status.version;
   document.getElementById("service-mode").textContent = status.https ? "HTTPS" : "HTTP";
@@ -105,6 +176,7 @@ async function loadStatus() {
   indicator.textContent = status.active ? "Activo" : "No disponible";
   indicator.className = `badge ${status.active ? "active" : "pending"}`;
   setAppStatus("Servicio local operativo", "active");
+  updateDashboard();
 }
 
 async function loadConfig() {
@@ -116,6 +188,7 @@ async function loadConfig() {
   renderDevelopmentConfig(developmentConfig);
   renderPkcs12Tokens();
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
+  updateDashboard();
 }
 
 function renderServerConfig(server) {
@@ -123,6 +196,7 @@ function renderServerConfig(server) {
   document.getElementById("server-port").value = server.port || 4637;
   document.getElementById("server-https").checked = Boolean(server.https);
   document.getElementById("server-current-url").textContent = serverUrl(server);
+  updateDashboard();
   updateServerWarning();
 }
 
@@ -225,6 +299,7 @@ function renderDevelopmentConfig(development) {
     ? "Variable encontrada"
     : "Variable no encontrada";
   populateDevelopmentIdentities();
+  updateDashboard();
 }
 
 async function saveDevelopmentConfig() {
@@ -395,12 +470,14 @@ async function loadSigningIdentities() {
   signingIdentities = await invoke("list_signing_identities");
   renderCertificates();
   populateSigningIdentities();
+  updateDashboard();
 }
 
 async function refreshSigningIdentities() {
   signingIdentities = await invoke("refresh_signing_identities");
   renderCertificates();
   populateSigningIdentities();
+  updateDashboard();
 }
 
 function applyTokenCertificateCache(cache) {
@@ -411,6 +488,7 @@ function applyTokenCertificateCache(cache) {
   renderTokenCertificateCache(cache);
   renderTokens();
   renderCertificates();
+  updateDashboard();
 }
 
 function renderTokens() {
@@ -438,20 +516,7 @@ function renderCertificates() {
     return;
   }
   if (signingIdentities.length) {
-    showItems(container, signingIdentities.map((identity) => item(
-      identityTitle(identity),
-      [
-        tokenGroupLabel(identity),
-        `Subject: ${identity.subject || "-"}`,
-        `Issuer: ${identity.issuer || "-"}`,
-        `Vence: ${identity.not_after || "-"}`,
-        `Slot: ${identity.slot_id}`,
-        identity.certificate_id ? `ID certificado: ${identity.certificate_id}` : "",
-        identity.is_default ? "Predeterminado: Si" : "",
-        !identity.is_available ? "Estado: token/certificado no disponible" : "",
-        identity.is_expired ? "Estado: certificado expirado" : "",
-      ],
-    )));
+    renderIdentityCards(container, signingIdentities);
     return;
   }
   if (!certificates.length) {
@@ -468,6 +533,92 @@ function renderCertificates() {
       certificate.id ? `ID: ${certificate.id}` : "",
     ],
   )));
+}
+
+function renderIdentityCards(container, identities) {
+  container.className = "identity-grid";
+  const groups = groupByIdentityToken(identities);
+  const elements = [];
+  groups.forEach((tokenIdentities) => {
+    const group = document.createElement("section");
+    group.className = "identity-group";
+    const title = document.createElement("h3");
+    title.textContent = tokenGroupLabel(tokenIdentities[0]);
+    group.appendChild(title);
+    tokenIdentities.forEach((identity) => group.appendChild(identityCard(identity)));
+    elements.push(group);
+  });
+  container.replaceChildren(...elements);
+}
+
+function identityCard(identity) {
+  const article = document.createElement("article");
+  article.className = "identity-card";
+  if (!identity.is_available || identity.is_expired) {
+    article.classList.add("muted");
+  }
+
+  const header = document.createElement("div");
+  header.className = "identity-card-header";
+  const title = document.createElement("strong");
+  title.textContent = identityShortTitle(identity);
+  header.appendChild(title);
+
+  const badges = document.createElement("div");
+  badges.className = "identity-badges";
+  if (identity.is_default) {
+    badges.appendChild(identityBadge("Predeterminada", "active"));
+  }
+  if (identity.provider === "pkcs12") {
+    badges.appendChild(identityBadge("PKCS#12", "dev"));
+  }
+  if (!identity.is_available) {
+    badges.appendChild(identityBadge("No disponible", "warning"));
+  } else if (identity.is_expired) {
+    badges.appendChild(identityBadge("Expirada", "warning"));
+  } else if (identity.expires_soon) {
+    badges.appendChild(identityBadge("Vence pronto", "warning"));
+  }
+  header.appendChild(badges);
+  article.appendChild(header);
+
+  const meta = document.createElement("div");
+  meta.className = "identity-meta";
+  [
+    `Emisor: ${identity.issuer || "-"}`,
+    `Vence: ${identity.not_after || "-"}`,
+    `Slot: ${Number.isFinite(identity.slot_id) ? identity.slot_id : "-"}`,
+  ].forEach((text) => {
+    const span = document.createElement("span");
+    span.textContent = text;
+    meta.appendChild(span);
+  });
+  article.appendChild(meta);
+
+  const details = document.createElement("details");
+  details.className = "identity-details";
+  const summary = document.createElement("summary");
+  summary.textContent = "Ver detalles tecnicos";
+  details.appendChild(summary);
+  [
+    `Subject: ${identity.subject || "-"}`,
+    `ID identidad: ${identity.identity_id || "-"}`,
+    `ID certificado: ${identity.certificate_id || "-"}`,
+    `Token: ${tokenGroupLabel(identity)}`,
+  ].forEach((text) => {
+    const line = document.createElement("span");
+    line.textContent = text;
+    details.appendChild(line);
+  });
+  article.appendChild(details);
+  return article;
+}
+
+function identityBadge(text, variant) {
+  const badge = document.createElement("span");
+  badge.className = `identity-badge ${variant || ""}`;
+  badge.textContent = text;
+  return badge;
 }
 
 function renderTokenCertificateCache(cache) {
@@ -542,6 +693,12 @@ function identityTitle(identity) {
   return identity.subject || identity.certificate_label || identity.certificate_id || identity.identity_id;
 }
 
+function identityShortTitle(identity) {
+  const subject = identityTitle(identity);
+  const cn = subject.match(/CN\s*=\s*([^,]+)/i);
+  return (cn?.[1] || subject).trim();
+}
+
 function tokenGroupLabel(identity) {
   if (identity.provider === "pkcs12") {
     return `[PKCS#12 DEV] ${identity.token_label || identity.virtual_token_id || "Token virtual"}`;
@@ -574,6 +731,22 @@ function identityDetails(identity) {
     `ID: ${identity.certificate_id || "-"}`,
     flags.length ? `[${flags.join(", ")}]` : "",
   ].filter(Boolean).join(" | ");
+}
+
+function identityOptionText(identity) {
+  const flags = [];
+  if (identity.is_default) {
+    flags.push("predeterminada");
+  }
+  if (!identity.is_available) {
+    flags.push("no disponible");
+  }
+  if (identity.is_expired) {
+    flags.push("expirada");
+  }
+  const provider = identity.provider === "pkcs12" ? "P12" : `slot ${identity.slot_id}`;
+  const suffix = flags.length ? ` (${flags.join(", ")})` : "";
+  return `${identityShortTitle(identity)} - ${provider} - vence ${identity.not_after || "-"}${suffix}`;
 }
 
 function availableSigningIdentities() {
@@ -691,6 +864,8 @@ function sessionItem(session) {
 async function loadSessions() {
   const container = document.getElementById("sessions");
   const sessions = await invoke("list_signing_sessions");
+  sessionsSnapshot = sessions;
+  updateDashboard();
   const pending = sessions.filter((session) => session.status === "pending");
 
   if (windowMode === "main") {
@@ -779,7 +954,7 @@ function populateIdentitySelect(selectId, onUpdate) {
     tokenIdentities.forEach((identity) => {
       const option = document.createElement("option");
       option.value = identity.identity_id;
-      option.textContent = identityDetails(identity);
+      option.textContent = identityOptionText(identity);
       option.disabled = !identity.is_available || identity.is_expired;
       group.appendChild(option);
     });
@@ -1189,9 +1364,11 @@ function renderPdfValidation(selected, report) {
 
 async function runSystemDiagnostics() {
   document.getElementById("validation-message").textContent = "Ejecutando diagnostico...";
+  document.getElementById("diagnostics-message").textContent = "Ejecutando...";
   latestDiagnostics = await invoke("run_diagnostics");
   renderDiagnostics(latestDiagnostics);
   document.getElementById("validation-message").textContent = "Diagnostico completado";
+  document.getElementById("diagnostics-message").textContent = "Diagnostico completado";
 }
 
 function renderDiagnostics(report) {
@@ -1290,11 +1467,19 @@ function configureWindowMode() {
   document.body.dataset.window = windowMode;
   if (windowMode === "signing") {
     document.getElementById("signing-view").classList.remove("hidden");
+  } else {
+    showSection(activeSection);
   }
 }
 
 function bindEvents() {
   if (windowMode === "main") {
+    document.querySelectorAll("[data-section-target]").forEach((navButton) => {
+      navButton.addEventListener("click", () => showSection(navButton.dataset.sectionTarget));
+    });
+    document.getElementById("quick-sign-file").addEventListener("click", () => showSection("firmar"));
+    document.getElementById("quick-open-sessions").addEventListener("click", () => showSection("solicitudes"));
+    document.getElementById("quick-refresh-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("refresh-all").addEventListener("click", () => run(async () => {
       await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
     }));

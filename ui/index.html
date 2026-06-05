@@ -7,23 +7,93 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header id="main-header" class="header">
-    <div>
-      <p class="eyebrow">Servicio local de firma digital</p>
-      <h1>MiniFirmador</h1>
-    </div>
-    <button id="refresh-all" class="secondary">Actualizar</button>
-  </header>
+  <div id="app-shell" class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Navegacion principal">
+      <div class="sidebar-brand">
+        <span class="brand-mark">MF</span>
+        <div>
+          <strong>MiniFirmador</strong>
+          <span>Escritorio local</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-button active" type="button" data-section-target="inicio">Inicio</button>
+        <button class="nav-button" type="button" data-section-target="firmar">Firmar</button>
+        <button class="nav-button" type="button" data-section-target="solicitudes">Solicitudes</button>
+        <button class="nav-button" type="button" data-section-target="identidades">Identidades</button>
+        <button class="nav-button" type="button" data-section-target="desarrollo">Desarrollo</button>
+        <button class="nav-button" type="button" data-section-target="validacion">Validacion</button>
+        <button class="nav-button" type="button" data-section-target="configuracion">Configuracion</button>
+        <button class="nav-button" type="button" data-section-target="diagnostico">Diagnostico</button>
+      </nav>
+      <div class="sidebar-footer">
+        <span id="sidebar-status-dot" class="status-dot pending"></span>
+        <span id="sidebar-status-text">Iniciando...</span>
+      </div>
+    </aside>
 
-  <main id="main-view" class="layout">
-    <section class="card status-line-card">
+    <div class="app-content">
+      <header id="main-header" class="header">
+        <div>
+          <p class="eyebrow">Servicio local de firma digital</p>
+          <h1 id="section-title">Inicio</h1>
+        </div>
+        <button id="refresh-all" class="secondary">Actualizar</button>
+      </header>
+
+      <main id="main-view" class="layout">
+        <section class="card dashboard-card" data-section="inicio">
+          <div class="card-title">
+            <div>
+              <h2>Panel general</h2>
+              <p class="quiet">Firma local, tokens, sesiones y diagnostico en un solo lugar.</p>
+            </div>
+            <span id="dashboard-status-badge" class="badge pending">Consultando</span>
+          </div>
+          <div class="dashboard-grid">
+            <article class="metric-card">
+              <span>URL local</span>
+              <strong id="dashboard-url">-</strong>
+            </article>
+            <article class="metric-card">
+              <span>Driver</span>
+              <strong id="dashboard-provider">-</strong>
+            </article>
+            <article class="metric-card">
+              <span>Tokens</span>
+              <strong id="dashboard-token-count">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Certificados</span>
+              <strong id="dashboard-cert-count">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Solicitudes pendientes</span>
+              <strong id="dashboard-pending">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Modo desarrollo</span>
+              <strong id="dashboard-dev-mode">-</strong>
+            </article>
+          </div>
+          <dl class="summary dashboard-summary">
+            <div class="wide"><dt>Identidad predeterminada</dt><dd id="dashboard-default-identity">-</dd></div>
+          </dl>
+          <div class="quick-actions">
+            <button id="quick-sign-file" type="button">Firmar archivo</button>
+            <button id="quick-open-sessions" class="secondary" type="button">Ver solicitudes</button>
+            <button id="quick-refresh-tokens" class="secondary" type="button">Actualizar tokens</button>
+          </div>
+        </section>
+
+        <section class="card status-line-card" data-section="inicio">
       <div class="status-line">
         <span id="app-status-dot" class="status-dot"></span>
         <span id="app-status-text">Iniciando servidor...</span>
       </div>
     </section>
 
-    <section class="card status-card">
+    <section class="card status-card" data-section="configuracion">
       <div class="card-title">
         <h2>Estado</h2>
         <span id="service-indicator" class="badge pending">Consultando</span>
@@ -37,7 +107,7 @@
       </dl>
     </section>
 
-    <section class="card config-card">
+    <section class="card config-card" data-section="configuracion">
       <div class="card-title">
         <h2>Configuracion</h2>
         <span id="save-message" class="quiet"></span>
@@ -87,6 +157,13 @@
         <div class="wide"><dt>Driver cacheado</dt><dd id="cache-library-path">-</dd></div>
       </dl>
 
+    </section>
+
+    <section class="card development-card" data-section="desarrollo">
+      <div class="card-title">
+        <h2>Desarrollo</h2>
+        <span id="development-section-status" class="quiet">Herramientas internas</span>
+      </div>
       <h3>Modo desarrollo</h3>
       <p class="modal-error">Modo desarrollo permite firmar automáticamente sin confirmación visual. No usar en producción.</p>
       <div class="development-grid">
@@ -190,7 +267,7 @@
       <div id="pkcs12-tokens" class="list empty">Sin tokens virtuales.</div>
     </section>
 
-    <section class="card">
+    <section class="card tokens-card" data-section="identidades">
       <div class="card-title">
         <h2>Tokens</h2>
         <button id="reload-tokens" class="text-button">Recargar</button>
@@ -198,15 +275,15 @@
       <div id="tokens" class="list empty">Sin consulta.</div>
     </section>
 
-    <section class="card">
+    <section class="card identities-card" data-section="identidades">
       <div class="card-title">
-        <h2>Certificados</h2>
+        <h2>Identidades de firma</h2>
         <button id="reload-certificates" class="text-button">Recargar</button>
       </div>
       <div id="certificates" class="list empty">Sin consulta.</div>
     </section>
 
-    <section class="card manual-sign-card">
+    <section class="card manual-sign-card" data-section="firmar">
       <div class="card-title">
         <h2>Firma manual</h2>
         <span id="manual-sign-message" class="quiet"></span>
@@ -258,7 +335,7 @@
       </div>
     </section>
 
-    <section class="card sessions-card">
+    <section class="card sessions-card" data-section="solicitudes">
       <div class="card-title">
         <h2>Sesiones de firma</h2>
         <button id="reload-sessions" class="text-button">Recargar</button>
@@ -267,9 +344,9 @@
       <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
     </section>
 
-    <section class="card validation-card">
+    <section class="card validation-card" data-section="validacion">
       <div class="card-title">
-        <h2>Validacion y diagnostico</h2>
+        <h2>Validacion</h2>
         <span id="validation-message" class="quiet"></span>
       </div>
 
@@ -285,7 +362,13 @@
       </div>
       <div id="pdf-validation-result" class="list empty">Sin validacion PDF.</div>
 
-      <h3>Diagnostico del sistema</h3>
+    </section>
+
+    <section class="card diagnostics-card" data-section="diagnostico">
+      <div class="card-title">
+        <h2>Diagnostico del sistema</h2>
+        <span id="diagnostics-message" class="quiet">Sin ejecutar</span>
+      </div>
       <div class="button-row">
         <button id="run-diagnostics" class="secondary">Ejecutar diagnostico</button>
         <button id="export-diagnostics" class="secondary">Exportar diagnostico</button>
@@ -293,7 +376,9 @@
       <div id="diagnostics-result" class="list empty">Sin diagnostico.</div>
       <p class="quiet">El diagnostico no incluye PIN, claves privadas, firmas completas ni contenido de documentos.</p>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 
   <main id="signing-view" class="signing-view hidden">
     <section class="signing-form" aria-labelledby="sign-modal-title">
