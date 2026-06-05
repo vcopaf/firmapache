@@ -67,6 +67,13 @@ allowed_origins = [
 
 [signing]
 default_identity_id = ""
+
+[development]
+enabled = false
+auto_sign = false
+default_identity_id = ""
+pin_env = "MINI_FIRMADOR_DEV_PIN"
+fallback_to_modal = true
 ```
 
 `POST /config` actualiza solo los campos enviados y persiste el resultado. La
@@ -86,6 +93,11 @@ pkcs11:{token_serial}:{slot_id}:{certificate_id}
 
 Si el token no expone serial, se usa un identificador basado en `slot_id` y
 `certificate_id`.
+
+El bloque `[development]` existe solo para pruebas locales. Permite autofirmar
+solicitudes `POST /sign` con token PKCS#11 fisico usando una identidad
+configurada y un PIN leido desde una variable de entorno. El PIN nunca se guarda
+en `config.toml`.
 
 Con `server.https = true`, el servicio genera automaticamente un certificado
 self-signed para `localhost` y `127.0.0.1` en:
@@ -187,6 +199,47 @@ Si cambia el puerto, por ejemplo a `4638`, reinicie el servidor y pruebe:
 ```bash
 curl -k https://localhost:4638/status
 ```
+
+### Modo desarrollo con autofirma
+
+El modo desarrollo viene desactivado por defecto. Cuando esta apagado, el flujo
+normal no cambia: `POST /sign` crea una sesion pendiente y abre la ventana
+`Solicitud de firma` para que el usuario seleccione identidad e ingrese PIN.
+
+Configuracion de ejemplo:
+
+```toml
+[development]
+enabled = true
+auto_sign = true
+default_identity_id = "pkcs11:..."
+pin_env = "MINI_FIRMADOR_DEV_PIN"
+fallback_to_modal = true
+```
+
+Uso:
+
+```bash
+export MINI_FIRMADOR_DEV_PIN="12345678"
+cargo tauri dev
+```
+
+Con `enabled = true` y `auto_sign = true`, `POST /sign` intenta firmar
+automaticamente usando `development.default_identity_id` y el PIN leido desde
+`development.pin_env`. Funciona para `format = "jws"` y `format = "pdf"`.
+
+Si falta identidad, el PIN no existe en el entorno o la autofirma falla:
+
+- con `fallback_to_modal = true`, MiniFirmador continua con la ventana de firma
+  interactiva normal;
+- con `fallback_to_modal = false`, `POST /sign` responde un error JSON claro.
+
+La UI incluye una seccion **Modo desarrollo** para activar/desactivar esta
+funcion, elegir la identidad, configurar el nombre de la variable de entorno y
+probar si el PIN esta disponible. No pide ni guarda el PIN.
+
+Advertencia: no use este modo con tokens oficiales en produccion. Permite firmar
+sin confirmacion visual.
 
 Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
 `Solicitud de firma` sobre el escritorio. Esa ventana pide certificado y PIN,

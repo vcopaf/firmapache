@@ -86,6 +86,35 @@
         <div><dt>Certificados</dt><dd id="cache-certificate-count">0</dd></div>
         <div class="wide"><dt>Driver cacheado</dt><dd id="cache-library-path">-</dd></div>
       </dl>
+
+      <h3>Modo desarrollo</h3>
+      <p class="modal-error">Modo desarrollo permite firmar automáticamente sin confirmación visual. No usar en producción.</p>
+      <div class="development-grid">
+        <label class="toggle-row" for="development-enabled">
+          <input id="development-enabled" type="checkbox">
+          <span>Activar modo desarrollo</span>
+        </label>
+        <label class="toggle-row" for="development-auto-sign">
+          <input id="development-auto-sign" type="checkbox">
+          <span>Autofirmar solicitudes POST /sign</span>
+        </label>
+        <label class="toggle-row" for="development-fallback">
+          <input id="development-fallback" type="checkbox">
+          <span>Si falla autofirma, abrir modal interactivo</span>
+        </label>
+      </div>
+      <label for="development-identity">Identidad predeterminada desarrollo</label>
+      <select id="development-identity"></select>
+      <label for="development-pin-env">Variable de entorno PIN</label>
+      <input id="development-pin-env" type="text" placeholder="MINI_FIRMADOR_DEV_PIN">
+      <dl class="summary server-summary">
+        <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
+      </dl>
+      <div class="button-row">
+        <button id="save-development-config" class="secondary">Guardar modo desarrollo</button>
+        <button id="test-development-config" class="secondary">Probar configuración</button>
+      </div>
+      <p id="development-message" class="quiet"></p>
     </section>
 
     <section class="card">

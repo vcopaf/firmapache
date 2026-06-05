@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod certificates;
 pub mod crypto;
+pub mod development;
 pub mod identity;
 pub mod pdf;
 pub mod pkcs11;

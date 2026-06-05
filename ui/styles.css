@@ -171,6 +171,13 @@ label {
   grid-template-columns: 1fr 150px 180px;
 }
 
+.development-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
 .toggle-row {
   align-items: center;
   background: #f7f6f1;

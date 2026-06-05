@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{env, path::Path};
 
 use serde::Serialize;
 
@@ -20,6 +20,11 @@ pub struct DiagnosticsReport {
     pub server_url: String,
     pub server_active: bool,
     pub last_restart_error: Option<String>,
+    pub development_enabled: bool,
+    pub development_auto_sign: bool,
+    pub development_default_identity_id: Option<String>,
+    pub development_pin_env: String,
+    pub development_pin_env_defined: bool,
     pub configured_pkcs11_library_path: Option<String>,
     pub detected_pkcs11_library_path: Option<String>,
     pub driver_found: bool,
@@ -102,6 +107,16 @@ pub fn run_diagnostics(
         server_url: server_url(config),
         server_active: true,
         last_restart_error: None,
+        development_enabled: config.development.enabled,
+        development_auto_sign: config.development.auto_sign,
+        development_default_identity_id: (!config
+            .development
+            .default_identity_id
+            .trim()
+            .is_empty())
+        .then(|| config.development.default_identity_id.clone()),
+        development_pin_env: config.development.pin_env.clone(),
+        development_pin_env_defined: env::var(&config.development.pin_env).is_ok(),
         configured_pkcs11_library_path: config.pkcs11.library_path.clone(),
         detected_pkcs11_library_path: library.path,
         driver_found: library.found,

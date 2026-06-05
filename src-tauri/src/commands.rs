@@ -83,6 +83,22 @@ pub struct ServerConfigView {
 }
 
 #[derive(Serialize)]
+pub struct DevelopmentConfigView {
+    enabled: bool,
+    auto_sign: bool,
+    default_identity_id: String,
+    pin_env: String,
+    fallback_to_modal: bool,
+    pin_env_defined: bool,
+}
+
+#[derive(Serialize)]
+pub struct DevelopmentConfigTestResult {
+    ready: bool,
+    messages: Vec<String>,
+}
+
+#[derive(Serialize)]
 pub struct SigningSessionView {
     id: String,
     files: Vec<SigningSessionFileView>,
@@ -220,6 +236,62 @@ pub fn update_server_config(
 #[tauri::command]
 pub fn test_server_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
     get_status(state)
+}
+
+#[tauri::command]
+pub fn get_development_config(
+    state: State<'_, AppState>,
+) -> Result<DevelopmentConfigView, String> {
+    let config = current_config(&state)?;
+    Ok(development_config_view(&config))
+}
+
+#[tauri::command]
+pub fn update_development_config(
+    state: State<'_, AppState>,
+    enabled: bool,
+    auto_sign: bool,
+    default_identity_id: String,
+    pin_env: String,
+    fallback_to_modal: bool,
+) -> Result<DevelopmentConfigView, String> {
+    let pin_env = pin_env.trim().to_owned();
+    if pin_env.is_empty() {
+        return Err("La variable de entorno del PIN no puede estar vacía".to_owned());
+    }
+    let mut config = current_config(&state)?;
+    config.development.enabled = enabled;
+    config.development.auto_sign = auto_sign;
+    config.development.default_identity_id = default_identity_id.trim().to_owned();
+    config.development.pin_env = pin_env;
+    config.development.fallback_to_modal = fallback_to_modal;
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    Ok(development_config_view(&config))
+}
+
+#[tauri::command]
+pub fn test_development_config(
+    state: State<'_, AppState>,
+) -> Result<DevelopmentConfigTestResult, String> {
+    let config = current_config(&state)?;
+    let mut messages = Vec::new();
+    if !config.development.enabled {
+        messages.push("Development mode is disabled".to_owned());
+    }
+    if !config.development.auto_sign {
+        messages.push("Development auto-sign is disabled".to_owned());
+    }
+    if config.development.default_identity_id.trim().is_empty() {
+        messages.push("Development default identity is not configured".to_owned());
+    }
+    if std::env::var(&config.development.pin_env).is_err() {
+        messages.push("Development PIN environment variable not found".to_owned());
+    }
+    let ready = messages.is_empty();
+    Ok(DevelopmentConfigTestResult { ready, messages })
 }
 
 #[tauri::command]
@@ -869,6 +941,17 @@ fn server_config_view(config: &AppConfig) -> ServerConfigView {
         https: config.server.https,
         url: server_url(config),
         exposes_network: config.server.host == "0.0.0.0",
+    }
+}
+
+fn development_config_view(config: &AppConfig) -> DevelopmentConfigView {
+    DevelopmentConfigView {
+        enabled: config.development.enabled,
+        auto_sign: config.development.auto_sign,
+        default_identity_id: config.development.default_identity_id.clone(),
+        pin_env: config.development.pin_env.clone(),
+        fallback_to_modal: config.development.fallback_to_modal,
+        pin_env_defined: std::env::var(&config.development.pin_env).is_ok(),
     }
 }
 

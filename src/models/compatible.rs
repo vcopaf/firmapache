@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CompatibleSignRequest {
     pub archivo: Vec<CompatibleInputFile>,
     pub format: String,
     pub language: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CompatibleInputFile {
     pub base64: String,
     pub name: String,

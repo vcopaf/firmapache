@@ -69,6 +69,29 @@ pub struct SigningConfig {
     pub default_identity_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DevelopmentConfig {
+    pub enabled: bool,
+    pub auto_sign: bool,
+    pub default_identity_id: String,
+    #[serde(default = "default_development_pin_env")]
+    pub pin_env: String,
+    pub fallback_to_modal: bool,
+}
+
+impl Default for DevelopmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auto_sign: false,
+            default_identity_id: String::new(),
+            pin_env: default_development_pin_env(),
+            fallback_to_modal: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -76,6 +99,7 @@ pub struct AppConfig {
     pub pkcs11: Pkcs11Config,
     pub cors: CorsConfig,
     pub signing: SigningConfig,
+    pub development: DevelopmentConfig,
 }
 
 fn default_server_host() -> String {
@@ -99,6 +123,10 @@ fn default_allowed_origins() -> Vec<String> {
         "http://localhost:3000".to_owned(),
         "http://127.0.0.1:3000".to_owned(),
     ]
+}
+
+fn default_development_pin_env() -> String {
+    "MINI_FIRMADOR_DEV_PIN".to_owned()
 }
 
 impl AppConfig {
@@ -199,6 +227,23 @@ impl AppConfig {
                 config.signing.default_identity_id = default_identity_id;
             }
         }
+        if let Some(development) = update.development {
+            if let Some(enabled) = development.enabled {
+                config.development.enabled = enabled;
+            }
+            if let Some(auto_sign) = development.auto_sign {
+                config.development.auto_sign = auto_sign;
+            }
+            if let Some(default_identity_id) = development.default_identity_id {
+                config.development.default_identity_id = default_identity_id;
+            }
+            if let Some(pin_env) = development.pin_env {
+                config.development.pin_env = pin_env;
+            }
+            if let Some(fallback_to_modal) = development.fallback_to_modal {
+                config.development.fallback_to_modal = fallback_to_modal;
+            }
+        }
 
         config.validate()?;
         Ok(config)
@@ -255,6 +300,11 @@ impl AppConfig {
                 "pkcs11.library_path cannot be empty".to_owned(),
             ));
         }
+        if self.development.pin_env.trim().is_empty() {
+            return Err(ConfigError::Invalid(
+                "development.pin_env cannot be empty".to_owned(),
+            ));
+        }
 
         Ok(())
     }
@@ -267,6 +317,7 @@ pub struct AppConfigUpdate {
     pub pkcs11: Option<Pkcs11ConfigUpdate>,
     pub cors: Option<CorsConfigUpdate>,
     pub signing: Option<SigningConfigUpdate>,
+    pub development: Option<DevelopmentConfigUpdate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -293,6 +344,16 @@ pub struct CorsConfigUpdate {
 #[serde(deny_unknown_fields)]
 pub struct SigningConfigUpdate {
     pub default_identity_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentConfigUpdate {
+    pub enabled: Option<bool>,
+    pub auto_sign: Option<bool>,
+    pub default_identity_id: Option<String>,
+    pub pin_env: Option<String>,
+    pub fallback_to_modal: Option<bool>,
 }
 
 #[derive(Debug, Error)]

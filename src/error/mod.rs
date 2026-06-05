@@ -6,6 +6,7 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::core::development::DevelopmentError;
 use crate::{
     config::ConfigError,
     core::{
@@ -29,6 +30,8 @@ pub enum AppError {
     Cache(#[from] CacheError),
     #[error(transparent)]
     SigningSession(#[from] SigningSessionError),
+    #[error(transparent)]
+    Development(#[from] DevelopmentError),
     #[error("PKCS#11 task failed: {0}")]
     Pkcs11Task(#[from] tokio::task::JoinError),
 }
@@ -157,6 +160,31 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "signing session operation failed".to_owned(),
             ),
+            Self::Development(DevelopmentError::Disabled) => (
+                StatusCode::BAD_REQUEST,
+                "Development mode is disabled".to_owned(),
+            ),
+            Self::Development(DevelopmentError::AutoSignDisabled) => (
+                StatusCode::BAD_REQUEST,
+                "Development auto-sign is disabled".to_owned(),
+            ),
+            Self::Development(DevelopmentError::DefaultIdentityNotConfigured) => (
+                StatusCode::BAD_REQUEST,
+                "Development default identity is not configured".to_owned(),
+            ),
+            Self::Development(DevelopmentError::IdentityNotAvailable) => (
+                StatusCode::BAD_REQUEST,
+                "Development identity is not available".to_owned(),
+            ),
+            Self::Development(DevelopmentError::PinEnvironmentVariableNotFound) => (
+                StatusCode::BAD_REQUEST,
+                "Development PIN environment variable not found".to_owned(),
+            ),
+            Self::Development(DevelopmentError::AutoSignFailed(error)) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Development auto-sign failed: {error}"),
+            ),
+            Self::Development(error) => (StatusCode::BAD_REQUEST, error.to_string()),
             Self::Pkcs11(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PKCS#11 operation failed".to_owned(),

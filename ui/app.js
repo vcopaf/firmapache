@@ -2,6 +2,7 @@ const invoke = window.__TAURI__.core.invoke;
 const currentWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
 let config = null;
+let developmentConfig = null;
 let activeSigningSession = null;
 let loadingSessions = false;
 let certificates = [];
@@ -108,7 +109,9 @@ async function loadStatus() {
 async function loadConfig() {
   setAppStatus("Cargando configuracion...");
   config = await invoke("get_config");
+  developmentConfig = await invoke("get_development_config");
   renderServerConfig(config.server);
+  renderDevelopmentConfig(developmentConfig);
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
 }
 
@@ -205,6 +208,47 @@ function updateServerWarning() {
     warning.textContent = "";
     warning.classList.add("hidden");
   }
+}
+
+function renderDevelopmentConfig(development) {
+  if (!document.getElementById("development-enabled")) {
+    return;
+  }
+  document.getElementById("development-enabled").checked = Boolean(development.enabled);
+  document.getElementById("development-auto-sign").checked = Boolean(development.auto_sign);
+  document.getElementById("development-fallback").checked = Boolean(development.fallback_to_modal);
+  document.getElementById("development-pin-env").value = development.pin_env || "MINI_FIRMADOR_DEV_PIN";
+  document.getElementById("development-pin-status").textContent = development.pin_env_defined
+    ? "Variable encontrada"
+    : "Variable no encontrada";
+  populateDevelopmentIdentities();
+}
+
+async function saveDevelopmentConfig() {
+  const payload = readDevelopmentConfigInput();
+  developmentConfig = await invoke("update_development_config", payload);
+  renderDevelopmentConfig(developmentConfig);
+  document.getElementById("development-message").textContent = "Modo desarrollo guardado";
+  window.setTimeout(() => { document.getElementById("development-message").textContent = ""; }, 2500);
+}
+
+async function testDevelopmentConfig() {
+  const result = await invoke("test_development_config");
+  document.getElementById("development-message").textContent = result.ready
+    ? "Configuración de desarrollo lista"
+    : result.messages.join(" | ");
+  developmentConfig = await invoke("get_development_config");
+  renderDevelopmentConfig(developmentConfig);
+}
+
+function readDevelopmentConfigInput() {
+  return {
+    enabled: document.getElementById("development-enabled").checked,
+    autoSign: document.getElementById("development-auto-sign").checked,
+    defaultIdentityId: document.getElementById("development-identity").value,
+    pinEnv: document.getElementById("development-pin-env").value.trim() || "MINI_FIRMADOR_DEV_PIN",
+    fallbackToModal: document.getElementById("development-fallback").checked,
+  };
 }
 
 async function loadTokens() {
@@ -588,6 +632,7 @@ function populateManualCertificates() {
 function populateSigningIdentities() {
   populateSigningCertificates();
   populateManualCertificates();
+  populateDevelopmentIdentities();
 }
 
 function populateIdentitySelect(selectId, onUpdate) {
@@ -645,6 +690,18 @@ function populateIdentitySelect(selectId, onUpdate) {
     select.value = available[0].identity_id;
   }
   onUpdate();
+}
+
+function populateDevelopmentIdentities() {
+  const select = document.getElementById("development-identity");
+  if (!select) {
+    return;
+  }
+  const selectedValue = developmentConfig?.default_identity_id || select.value;
+  populateIdentitySelect("development-identity", () => {});
+  if ([...select.options].some((option) => option.value === selectedValue && !option.disabled)) {
+    select.value = selectedValue;
+  }
 }
 
 function groupByIdentityToken(items) {
@@ -1030,6 +1087,13 @@ function renderDiagnostics(report) {
       report.last_restart_error ? `Ultimo error de reinicio: ${report.last_restart_error}` : "",
       report.last_error ? `Ultimo error: ${report.last_error}` : "",
     ]),
+    item("Modo desarrollo", [
+      `Activado: ${yesNo(report.development_enabled)}`,
+      `Autofirma: ${yesNo(report.development_auto_sign)}`,
+      `Identidad dev: ${report.development_default_identity_id || "-"}`,
+      `PIN env: ${report.development_pin_env || "-"}`,
+      `PIN env definido: ${yesNo(report.development_pin_env_defined)}`,
+    ]),
     item("Tokens y certificados", [
       `Tokens detectados: ${report.token_count}`,
       `Certificados detectados: ${report.certificate_count}`,
@@ -1131,6 +1195,14 @@ function bindEvents() {
     });
     document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("save-development-config").addEventListener("click", () => run(saveDevelopmentConfig));
+    document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
+    document.getElementById("development-identity").addEventListener("change", () => {
+      document.getElementById("development-message").textContent = "";
+    });
+    document.getElementById("development-pin-env").addEventListener("input", () => {
+      document.getElementById("development-pin-status").textContent = "Guardar o probar para verificar";
+    });
     document.getElementById("reload-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-certificates").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));

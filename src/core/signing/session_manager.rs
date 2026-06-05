@@ -135,15 +135,7 @@ impl SigningSessionManager {
 
         let file_count = session.files.len();
         let format = session.format.clone();
-        let response = match session.format.as_str() {
-            "jws" => jws::sign_files_with_cache(config, &session.files, input, cache)?,
-            "pdf" => sign_pdf_session_files(config, cache, &session.files, input)?,
-            format => {
-                return Err(SigningSessionError::Compatible(
-                    CompatibleSignError::UnsupportedFormat(format.to_owned()),
-                ));
-            }
-        };
+        let response = sign_prepared_files(config, cache, &session.files, &session.format, input)?;
         info!(
             session_id = %id,
             %format,
@@ -262,6 +254,22 @@ impl SigningSessionManager {
                     || now.signed_duration_since(state.session.created_at) < cutoff
             });
         Ok(())
+    }
+}
+
+pub fn sign_prepared_files(
+    config: &AppConfig,
+    cache: &TokenCertificateCache,
+    files: &[crate::models::signing::SigningSessionFile],
+    format: &str,
+    input: ApproveSigningSessionInput,
+) -> Result<CompatibleSignResponse, SigningSessionError> {
+    match format {
+        "jws" => Ok(jws::sign_files_with_cache(config, files, input, cache)?),
+        "pdf" => sign_pdf_session_files(config, cache, files, input),
+        format => Err(SigningSessionError::Compatible(
+            CompatibleSignError::UnsupportedFormat(format.to_owned()),
+        )),
     }
 }
 
