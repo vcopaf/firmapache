@@ -165,6 +165,29 @@ label {
   margin-top: 14px;
 }
 
+.server-config-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 150px 180px;
+}
+
+.toggle-row {
+  align-items: center;
+  background: #f7f6f1;
+  border: 1px solid #dbd6ca;
+  border-radius: 8px;
+  color: #283a35;
+  display: flex;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 11px 12px;
+}
+
+.toggle-row input {
+  flex: 0;
+  width: auto;
+}
+
 input,
 select {
   background: #f7f6f1;

@@ -1,6 +1,6 @@
 use std::{
     fs, io,
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
 };
 
@@ -164,8 +164,10 @@ impl AppConfig {
     pub fn bind_address(&self) -> Result<SocketAddr, ConfigError> {
         let address = format!("{}:{}", self.server.host, self.server.port);
         address
-            .parse()
-            .map_err(|_| ConfigError::Invalid(format!("invalid server address: {address}")))
+            .to_socket_addrs()
+            .map_err(|_| ConfigError::Invalid(format!("invalid server address: {address}")))?
+            .next()
+            .ok_or_else(|| ConfigError::Invalid(format!("invalid server address: {address}")))
     }
 
     pub fn apply_update(&self, update: AppConfigUpdate) -> Result<Self, ConfigError> {
@@ -222,9 +224,14 @@ impl AppConfig {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        if self.server.port == 0 {
+        if self.server.host.trim().is_empty() {
             return Err(ConfigError::Invalid(
-                "server.port must be greater than zero".to_owned(),
+                "server.host cannot be empty".to_owned(),
+            ));
+        }
+        if !(1024..=65535).contains(&self.server.port) {
+            return Err(ConfigError::Invalid(
+                "server.port must be between 1024 and 65535".to_owned(),
             ));
         }
         self.bind_address()?;

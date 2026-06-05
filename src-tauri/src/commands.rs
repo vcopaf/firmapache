@@ -22,9 +22,11 @@ use mini_firmador::{
 use serde::Serialize;
 use std::{
     fs,
+    net::TcpListener,
     path::{Path, PathBuf},
     sync::Mutex,
-    time::Instant,
+    thread,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -34,13 +36,28 @@ const SIGNING_WINDOW_LABEL: &str = "signing";
 
 pub struct DesktopState {
     server_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    last_restart_error: Mutex<Option<String>>,
 }
 
 impl DesktopState {
     pub fn new() -> Self {
         Self {
             server_task: Mutex::new(None),
+            last_restart_error: Mutex::new(None),
         }
+    }
+
+    pub fn set_last_restart_error(&self, error: Option<String>) {
+        if let Ok(mut last_error) = self.last_restart_error.lock() {
+            *last_error = error;
+        }
+    }
+
+    fn last_restart_error(&self) -> Option<String> {
+        self.last_restart_error
+            .lock()
+            .ok()
+            .and_then(|error| error.clone())
     }
 }
 
@@ -49,9 +66,20 @@ pub struct ServiceStatus {
     service: &'static str,
     version: &'static str,
     active: bool,
+    host: String,
     https: bool,
     port: u16,
+    url: String,
     pkcs11_library_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ServerConfigView {
+    host: String,
+    port: u16,
+    https: bool,
+    url: String,
+    exposes_network: bool,
 }
 
 #[derive(Serialize)]
@@ -150,8 +178,10 @@ pub fn get_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
         service: "mini-firmador",
         version: env!("CARGO_PKG_VERSION"),
         active: true,
+        host: config.server.host.clone(),
         https: config.server.https,
         port: config.server.port,
+        url: server_url(&config),
         pkcs11_library_path,
     })
 }
@@ -159,6 +189,37 @@ pub fn get_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     current_config(&state)
+}
+
+#[tauri::command]
+pub fn get_server_config(state: State<'_, AppState>) -> Result<ServerConfigView, String> {
+    let config = current_config(&state)?;
+    Ok(server_config_view(&config))
+}
+
+#[tauri::command]
+pub fn update_server_config(
+    state: State<'_, AppState>,
+    host: String,
+    port: u16,
+    https: bool,
+) -> Result<ServerConfigView, String> {
+    let host = host.trim().to_owned();
+    validate_server_fields(&host, port)?;
+    let mut config = current_config(&state)?;
+    config.server.host = host;
+    config.server.port = port;
+    config.server.https = https;
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+    Ok(server_config_view(&config))
+}
+
+#[tauri::command]
+pub fn test_server_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
+    get_status(state)
 }
 
 #[tauri::command]
@@ -626,26 +687,33 @@ pub fn get_token_certificate_cache(
 }
 
 #[tauri::command]
-pub fn run_diagnostics(state: State<'_, AppState>) -> Result<DiagnosticsReport, String> {
+pub fn run_diagnostics(
+    state: State<'_, AppState>,
+    desktop: State<'_, DesktopState>,
+) -> Result<DiagnosticsReport, String> {
     let config = current_config(&state)?;
-    Ok(diagnostics::run_diagnostics(
+    let mut report = diagnostics::run_diagnostics(
         &config,
         state.token_certificate_cache(),
         env!("CARGO_PKG_VERSION"),
-    ))
+    );
+    report.last_restart_error = desktop.last_restart_error();
+    Ok(report)
 }
 
 #[tauri::command]
 pub async fn export_diagnostics(
     app: AppHandle,
     state: State<'_, AppState>,
+    desktop: State<'_, DesktopState>,
 ) -> Result<ExportDiagnosticsResponse, String> {
     let config = current_config(&state)?;
-    let report = diagnostics::run_diagnostics(
+    let mut report = diagnostics::run_diagnostics(
         &config,
         state.token_certificate_cache(),
         env!("CARGO_PKG_VERSION"),
     );
+    report.last_restart_error = desktop.last_restart_error();
     let json = serde_json::to_string_pretty(&report)
         .map_err(|error| format!("error serializando diagnostico: {error}"))?;
 
@@ -766,7 +834,16 @@ pub fn restart_server(
     state: State<'_, AppState>,
     desktop: State<'_, DesktopState>,
 ) -> Result<(), String> {
-    start_embedded_server(&desktop, state.inner().clone())
+    match start_embedded_server(&desktop, state.inner().clone()) {
+        Ok(()) => {
+            desktop.set_last_restart_error(None);
+            Ok(())
+        }
+        Err(error) => {
+            desktop.set_last_restart_error(Some(error.clone()));
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -783,6 +860,36 @@ pub fn reject_signing_session(
 
 fn current_config(state: &State<'_, AppState>) -> Result<AppConfig, String> {
     state.config().map_err(|error| error.to_string())
+}
+
+fn server_config_view(config: &AppConfig) -> ServerConfigView {
+    ServerConfigView {
+        host: config.server.host.clone(),
+        port: config.server.port,
+        https: config.server.https,
+        url: server_url(config),
+        exposes_network: config.server.host == "0.0.0.0",
+    }
+}
+
+fn server_url(config: &AppConfig) -> String {
+    let scheme = if config.server.https { "https" } else { "http" };
+    let host = if config.server.host == "127.0.0.1" {
+        "localhost"
+    } else {
+        config.server.host.as_str()
+    };
+    format!("{scheme}://{host}:{}/", config.server.port)
+}
+
+fn validate_server_fields(host: &str, port: u16) -> Result<(), String> {
+    if host.trim().is_empty() {
+        return Err("Host no puede estar vacio".to_owned());
+    }
+    if !(1024..=65535).contains(&port) {
+        return Err("Puerto invalido. Use un numero entre 1024 y 65535.".to_owned());
+    }
+    Ok(())
 }
 
 fn resolve_identity_for_signing(
@@ -893,12 +1000,24 @@ fn selected_manual_file(path: PathBuf, size_bytes: u64) -> SelectedManualFile {
 }
 
 pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<(), String> {
+    let config = state.config().map_err(|error| error.to_string())?;
+    let address = config.bind_address().map_err(|error| error.to_string())?;
     let mut server_task = desktop
         .server_task
         .lock()
         .map_err(|_| "server runtime lock is unavailable".to_owned())?;
     if let Some(task) = server_task.take() {
         task.abort();
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    match TcpListener::bind(address) {
+        Ok(listener) => drop(listener),
+        Err(error) => {
+            return Err(format!(
+                "No se pudo iniciar el servidor. El puerto está en uso o no se puede enlazar {address}: {error}"
+            ));
+        }
     }
 
     *server_task = Some(tauri::async_runtime::spawn(async move {

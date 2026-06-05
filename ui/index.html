@@ -42,6 +42,32 @@
         <h2>Configuracion</h2>
         <span id="save-message" class="quiet"></span>
       </div>
+      <h3>Servidor local</h3>
+      <div class="server-config-grid">
+        <div>
+          <label for="server-host">Host</label>
+          <input id="server-host" type="text" placeholder="127.0.0.1">
+        </div>
+        <div>
+          <label for="server-port">Puerto</label>
+          <input id="server-port" type="number" min="1024" max="65535" step="1" placeholder="4637">
+        </div>
+        <label class="toggle-row" for="server-https">
+          <input id="server-https" type="checkbox">
+          <span>HTTPS activado</span>
+        </label>
+      </div>
+      <dl class="summary server-summary">
+        <div class="wide"><dt>URL actual</dt><dd id="server-current-url">-</dd></div>
+      </dl>
+      <p id="server-warning" class="modal-error hidden" role="alert"></p>
+      <p class="quiet">Los cambios de host, puerto o HTTPS requieren reiniciar el servidor local.</p>
+      <div class="button-row">
+        <button id="restart-server" class="secondary">Reiniciar servidor</button>
+        <button id="test-server-status" class="secondary">Probar estado</button>
+      </div>
+
+      <h3>PKCS#11</h3>
       <label for="library-path">Driver PKCS#11</label>
       <div class="path-row">
         <input id="library-path" type="text" readonly placeholder="Seleccione una biblioteca .so o .so.*">

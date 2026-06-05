@@ -84,9 +84,15 @@ function yesNo(value) {
   return value ? "Si" : "No";
 }
 
+function serverUrl(server) {
+  const scheme = server.https ? "https" : "http";
+  const host = server.host === "127.0.0.1" ? "localhost" : server.host;
+  return `${scheme}://${host}:${server.port}/`;
+}
+
 async function loadStatus() {
   setAppStatus("Iniciando servidor...");
-  const status = await invoke("get_status");
+  const status = await invoke("test_server_status");
   document.getElementById("service-name").textContent = status.service;
   document.getElementById("service-version").textContent = status.version;
   document.getElementById("service-mode").textContent = status.https ? "HTTPS" : "HTTP";
@@ -102,7 +108,16 @@ async function loadStatus() {
 async function loadConfig() {
   setAppStatus("Cargando configuracion...");
   config = await invoke("get_config");
+  renderServerConfig(config.server);
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
+}
+
+function renderServerConfig(server) {
+  document.getElementById("server-host").value = server.host || "127.0.0.1";
+  document.getElementById("server-port").value = server.port || 4637;
+  document.getElementById("server-https").checked = Boolean(server.https);
+  document.getElementById("server-current-url").textContent = serverUrl(server);
+  updateServerWarning();
 }
 
 async function selectLibrary() {
@@ -116,22 +131,80 @@ async function saveConfig() {
   if (!config) {
     await loadConfig();
   }
+  const server = readServerConfigInput();
+  if (!server) {
+    return;
+  }
+  const serverView = await invoke("update_server_config", server);
+  config = await invoke("get_config");
+  renderServerConfig(config.server);
   config.pkcs11.library_path = document.getElementById("library-path").value;
   config = await invoke("save_config", { config });
+  renderServerConfig(config.server);
   const message = document.getElementById("save-message");
-  message.textContent = "Guardado";
+  message.textContent = "Configuración guardada. Reinicie el servidor para aplicar cambios.";
   window.setTimeout(() => { message.textContent = ""; }, 2500);
   certificates = [];
   tokens = [];
   certificatesLoaded = false;
   renderTokenCertificateCache(null);
   await refreshTokenCertificateCache();
+  document.getElementById("server-current-url").textContent = serverView.url;
 }
 
 async function restartServer() {
   setAppStatus("Reiniciando servidor...");
   await invoke("restart_server");
   await loadStatus();
+  const message = document.getElementById("save-message");
+  message.textContent = "Servidor reiniciado";
+  window.setTimeout(() => { message.textContent = ""; }, 2500);
+}
+
+async function testServerStatus() {
+  const status = await invoke("test_server_status");
+  setAppStatus(`Servidor activo en ${status.url}`, "active");
+  document.getElementById("server-current-url").textContent = status.url;
+}
+
+function readServerConfigInput() {
+  const host = document.getElementById("server-host").value.trim();
+  const portText = document.getElementById("server-port").value.trim();
+  const https = document.getElementById("server-https").checked;
+  const warning = document.getElementById("server-warning");
+  warning.classList.add("hidden");
+  warning.textContent = "";
+
+  if (!host) {
+    warning.textContent = "Host no puede estar vacío.";
+    warning.classList.remove("hidden");
+    return null;
+  }
+  const port = Number(portText);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    warning.textContent = "Puerto inválido. Use un número entre 1024 y 65535.";
+    warning.classList.remove("hidden");
+    return null;
+  }
+  if (host === "0.0.0.0") {
+    warning.textContent = "0.0.0.0 expone el firmador en la red. No recomendado.";
+    warning.classList.remove("hidden");
+  }
+  return { host, port, https };
+}
+
+function updateServerWarning() {
+  const host = document.getElementById("server-host").value.trim();
+  const warning = document.getElementById("server-warning");
+  if (host === "0.0.0.0") {
+    warning.textContent = "0.0.0.0 expone el firmador en la red. No recomendado.";
+    warning.classList.remove("hidden");
+    return;
+  }
+  if (!warning.textContent || warning.textContent.includes("0.0.0.0")) {
+    warning.textContent = "";
+    warning.classList.add("hidden");
+  }
 }
 
 async function loadTokens() {
@@ -947,11 +1020,14 @@ function renderDiagnostics(report) {
     item("Sistema", [
       `Version: ${report.app_version}`,
       `Servidor: ${report.server_https ? "HTTPS" : "HTTP"} ${report.server_host}:${report.server_port}`,
+      `URL activa: ${report.server_url || "-"}`,
+      `Estado servidor: ${report.server_active ? "activo" : "no disponible"}`,
       `Driver configurado: ${report.configured_pkcs11_library_path || "-"}`,
       `Driver detectado: ${report.detected_pkcs11_library_path || "-"}`,
       `Driver encontrado: ${yesNo(report.driver_found)}`,
       `Fuente driver: ${report.driver_source || "-"}`,
       `PC/SC disponible: ${yesNo(report.pcsc_available)}`,
+      report.last_restart_error ? `Ultimo error de reinicio: ${report.last_restart_error}` : "",
       report.last_error ? `Ultimo error: ${report.last_error}` : "",
     ]),
     item("Tokens y certificados", [
@@ -1032,6 +1108,27 @@ function bindEvents() {
     }));
     document.getElementById("choose-library").addEventListener("click", () => run(selectLibrary));
     document.getElementById("save-config").addEventListener("click", () => run(saveConfig));
+    document.getElementById("restart-server").addEventListener("click", () => run(restartServer));
+    document.getElementById("test-server-status").addEventListener("click", () => run(testServerStatus));
+    document.getElementById("server-host").addEventListener("input", () => {
+      updateServerWarning();
+      const server = readServerConfigInput();
+      if (server) {
+        document.getElementById("server-current-url").textContent = serverUrl(server);
+      }
+    });
+    document.getElementById("server-port").addEventListener("input", () => {
+      const server = readServerConfigInput();
+      if (server) {
+        document.getElementById("server-current-url").textContent = serverUrl(server);
+      }
+    });
+    document.getElementById("server-https").addEventListener("change", () => {
+      const server = readServerConfigInput();
+      if (server) {
+        document.getElementById("server-current-url").textContent = serverUrl(server);
+      }
+    });
     document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));

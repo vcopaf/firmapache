@@ -17,6 +17,9 @@ pub struct DiagnosticsReport {
     pub server_host: String,
     pub server_port: u16,
     pub server_https: bool,
+    pub server_url: String,
+    pub server_active: bool,
+    pub last_restart_error: Option<String>,
     pub configured_pkcs11_library_path: Option<String>,
     pub detected_pkcs11_library_path: Option<String>,
     pub driver_found: bool,
@@ -96,6 +99,9 @@ pub fn run_diagnostics(
         server_host: config.server.host.clone(),
         server_port: config.server.port,
         server_https: config.server.https,
+        server_url: server_url(config),
+        server_active: true,
+        last_restart_error: None,
         configured_pkcs11_library_path: config.pkcs11.library_path.clone(),
         detected_pkcs11_library_path: library.path,
         driver_found: library.found,
@@ -133,6 +139,16 @@ pub fn run_diagnostics(
             .collect(),
         last_error,
     }
+}
+
+fn server_url(config: &AppConfig) -> String {
+    let scheme = if config.server.https { "https" } else { "http" };
+    let host = if config.server.host == "127.0.0.1" {
+        "localhost"
+    } else {
+        config.server.host.as_str()
+    };
+    format!("{scheme}://{host}:{}/", config.server.port)
 }
 
 fn pcsc_available() -> bool {

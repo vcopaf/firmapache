@@ -134,6 +134,7 @@ servicio local en el puerto configurado.
 La ventana permite:
 
 - Ver estado, version, modo HTTPS, puerto y driver PKCS#11 detectado.
+- Editar host, puerto y modo HTTPS del servidor local.
 - Elegir una biblioteca `.so` o `.so.*` y guardarla en `config.toml`.
 - Consultar tokens y certificados publicos.
 - Actualizar manualmente la cache de tokens/certificados.
@@ -147,6 +148,45 @@ La aplicacion vive en la bandeja del sistema. Al cerrar la ventana principal, la
 app se oculta pero el servidor local sigue activo. Desde el tray se puede abrir
 MiniFirmador, mostrar sesiones pendientes, reiniciar el servidor embebido o
 salir completamente.
+
+### Configurar servidor local desde la UI
+
+En **Configuracion > Servidor local** se pueden editar:
+
+- `host`, por ejemplo `127.0.0.1` o `localhost`;
+- `port`, entre `1024` y `65535`;
+- `https`, activado o desactivado.
+
+La UI muestra la URL activa, por ejemplo:
+
+```text
+https://localhost:4637/
+```
+
+Los cambios se guardan en `~/.config/mini-firmador/config.toml`, pero requieren
+reiniciar el servidor local para aplicarse. Use el boton **Reiniciar servidor**
+desde la misma seccion o desde el menu del tray.
+
+`0.0.0.0` se acepta para casos controlados, pero muestra una advertencia porque
+expone el firmador en la red. No se recomienda para uso normal.
+
+Pruebas rapidas:
+
+```bash
+curl -k https://localhost:4637/status
+```
+
+Si HTTPS esta desactivado:
+
+```bash
+curl http://127.0.0.1:4637/status
+```
+
+Si cambia el puerto, por ejemplo a `4638`, reinicie el servidor y pruebe:
+
+```bash
+curl -k https://localhost:4638/status
+```
 
 Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
 `Solicitud de firma` sobre el escritorio. Esa ventana pide certificado y PIN,

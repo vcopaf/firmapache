@@ -44,8 +44,12 @@ fn main() {
             "restart_server" => {
                 let state = app.state::<AppState>().inner().clone();
                 let desktop = app.state::<commands::DesktopState>();
-                if let Err(error) = commands::start_embedded_server(&desktop, state) {
-                    tracing::error!(%error, "could not restart embedded local service");
+                match commands::start_embedded_server(&desktop, state) {
+                    Ok(()) => desktop.set_last_restart_error(None),
+                    Err(error) => {
+                        desktop.set_last_restart_error(Some(error.clone()));
+                        tracing::error!(%error, "could not restart embedded local service");
+                    }
                 }
             }
             "quit" => {
@@ -56,6 +60,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::get_config,
+            commands::get_server_config,
+            commands::update_server_config,
+            commands::test_server_status,
             commands::save_config,
             commands::select_pkcs11_library,
             commands::select_file_to_sign,
