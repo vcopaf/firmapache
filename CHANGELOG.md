@@ -7,6 +7,9 @@ y el versionado esperado es compatible con SemVer mientras el proyecto madura.
 
 ## [0.1.0] - 2026-06-05
 
+Canal: `stable`. Documento de release:
+[docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
+
 ### Agregado
 
 - Servicio HTTPS local en `https://localhost:4637/`.

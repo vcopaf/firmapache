@@ -15,6 +15,7 @@ use firmapache::{
         },
         watcher::{PcscTokenWatcher, TokenWatcherEventKind},
     },
+    metadata,
     models::{
         compatible::CompatibleSignResponse,
         pkcs11::{CertificateInfo, TokenInfo},
@@ -69,8 +70,16 @@ impl DesktopState {
 
 #[derive(Serialize)]
 pub struct ServiceStatus {
+    app_name: &'static str,
     service: &'static str,
     version: &'static str,
+    build_date: &'static str,
+    git_commit: &'static str,
+    release_channel: &'static str,
+    license: &'static str,
+    author: &'static str,
+    contact_email: &'static str,
+    repository_url: &'static str,
     active: bool,
     host: String,
     https: bool,
@@ -265,8 +274,16 @@ pub fn get_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
         .and_then(|library| library.path);
 
     Ok(ServiceStatus {
+        app_name: metadata::APP_NAME,
         service: "firmapache",
-        version: env!("CARGO_PKG_VERSION"),
+        version: metadata::APP_VERSION,
+        build_date: metadata::BUILD_DATE,
+        git_commit: metadata::GIT_COMMIT,
+        release_channel: metadata::RELEASE_CHANNEL,
+        license: metadata::LICENSE,
+        author: metadata::AUTHOR,
+        contact_email: metadata::CONTACT_EMAIL,
+        repository_url: metadata::REPOSITORY_URL,
         active: true,
         host: config.server.host.clone(),
         https: config.server.https,
@@ -1157,11 +1174,7 @@ pub fn run_diagnostics(
     desktop: State<'_, DesktopState>,
 ) -> Result<DiagnosticsReport, String> {
     let config = current_config(&state)?;
-    let mut report = diagnostics::run_diagnostics(
-        &config,
-        state.token_certificate_cache(),
-        env!("CARGO_PKG_VERSION"),
-    );
+    let mut report = diagnostics::run_diagnostics(&config, state.token_certificate_cache());
     report.last_restart_error = desktop.last_restart_error();
     Ok(report)
 }
@@ -1173,11 +1186,7 @@ pub async fn export_diagnostics(
     desktop: State<'_, DesktopState>,
 ) -> Result<ExportDiagnosticsResponse, String> {
     let config = current_config(&state)?;
-    let mut report = diagnostics::run_diagnostics(
-        &config,
-        state.token_certificate_cache(),
-        env!("CARGO_PKG_VERSION"),
-    );
+    let mut report = diagnostics::run_diagnostics(&config, state.token_certificate_cache());
     report.last_restart_error = desktop.last_restart_error();
     let json = serde_json::to_string_pretty(&report)
         .map_err(|error| format!("error serializando diagnostico: {error}"))?;

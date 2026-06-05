@@ -1,6 +1,7 @@
 pub mod config;
 pub mod core;
 pub mod error;
+pub mod metadata;
 pub mod models;
 pub mod server;
 pub mod utils;

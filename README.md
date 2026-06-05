@@ -44,6 +44,7 @@ publico de `POST /sign`.
 - [Validación y diagnóstico](#validación-y-diagnóstico)
 - [Seguridad](#seguridad)
 - [Desarrollo](#desarrollo)
+- [Release v0.1.0](#release-v010)
 - [Contribuir](#contribuir)
 - [GitHub Topics sugeridos](#github-topics-sugeridos)
 - [Licencia](#licencia)
@@ -622,7 +623,7 @@ Respuestas esperadas:
 ```
 
 ```json
-{"name":"firmapache","version":"0.1.0"}
+{"name":"FirMapache","version":"0.1.0","build_date":"2026-06-05T00:00:00Z","git_commit":"abcdef123456","release_channel":"stable"}
 ```
 
 Si el driver Feitian se selecciona automaticamente:
@@ -931,6 +932,18 @@ node --check ui/app.js
 
 Vea [CONTRIBUTING.md](CONTRIBUTING.md) para el flujo de desarrollo, reporte de
 bugs y propuesta de cambios.
+
+## Release v0.1.0
+
+La primera version publica estable esta documentada en
+[docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
+
+Comandos sugeridos para publicar el tag:
+
+```bash
+git tag -a v0.1.0 -m "FirMapache v0.1.0"
+git push origin v0.1.0
+```
 
 ## GitHub Topics sugeridos
 

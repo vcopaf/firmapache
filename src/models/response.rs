@@ -10,4 +10,7 @@ pub struct StatusResponse {
 pub struct VersionResponse {
     pub name: &'static str,
     pub version: &'static str,
+    pub build_date: &'static str,
+    pub git_commit: &'static str,
+    pub release_channel: &'static str,
 }

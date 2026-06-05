@@ -9,11 +9,16 @@ use crate::{
         identity::{SigningIdentity, build_signing_identities},
         pkcs11::provider,
     },
+    metadata,
 };
 
 #[derive(Debug, Serialize)]
 pub struct DiagnosticsReport {
+    pub app_name: String,
     pub app_version: String,
+    pub build_date: String,
+    pub git_commit: String,
+    pub release_channel: String,
     pub server_host: String,
     pub server_port: u16,
     pub server_https: bool,
@@ -96,11 +101,7 @@ pub struct DiagnosticPkcs12Token {
     pub not_after: Option<String>,
 }
 
-pub fn run_diagnostics(
-    config: &AppConfig,
-    cache: &TokenCertificateCache,
-    app_version: impl Into<String>,
-) -> DiagnosticsReport {
+pub fn run_diagnostics(config: &AppConfig, cache: &TokenCertificateCache) -> DiagnosticsReport {
     let mut last_error = None;
     let library = match provider::detect_pkcs11_library(config) {
         Ok(library) => library,
@@ -135,7 +136,11 @@ pub fn run_diagnostics(
         .count();
 
     DiagnosticsReport {
-        app_version: app_version.into(),
+        app_name: metadata::APP_NAME.to_owned(),
+        app_version: metadata::APP_VERSION.to_owned(),
+        build_date: metadata::BUILD_DATE.to_owned(),
+        git_commit: metadata::GIT_COMMIT.to_owned(),
+        release_channel: metadata::RELEASE_CHANNEL.to_owned(),
         server_host: config.server.host.clone(),
         server_port: config.server.port,
         server_https: config.server.https,

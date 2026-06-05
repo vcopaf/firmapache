@@ -1,9 +1,8 @@
 use axum::{extract::State, response::Html};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-use crate::{config::AppConfig, server::AppState};
+use crate::{config::AppConfig, metadata, server::AppState};
 
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const LOGO_PNG: &[u8] = include_bytes!("../../../src-tauri/icons/icon.png");
 
 pub async fn home(State(state): State<AppState>) -> Html<String> {
@@ -116,7 +115,8 @@ pub async fn home(State(state): State<AppState>) -> Html<String> {
     <section class="grid">
       <article class="card">
         <h2>Estado</h2>
-        <p>Version {APP_VERSION}</p>
+        <p>Version {version}</p>
+        <p>Canal: {release_channel}</p>
         <p>URL actual: <strong>{url}</strong></p>
       </article>
       <article class="card">
@@ -142,13 +142,19 @@ pub async fn home(State(state): State<AppState>) -> Html<String> {
       <article class="card">
         <h2>Proyecto</h2>
         <p>FirMapache</p>
-        <p>Responsable: Vladimir Copa Fabian</p>
-        <p>Correo: vcopafabian@gmail.com</p>
+        <p>Responsable: {author}</p>
+        <p>Correo: {contact_email}</p>
+        <p>Repositorio: {repository_url}</p>
       </article>
     </section>
   </main>
 </body>
-</html>"#
+</html>"#,
+        version = metadata::APP_VERSION,
+        release_channel = metadata::RELEASE_CHANNEL,
+        author = metadata::AUTHOR,
+        contact_email = metadata::CONTACT_EMAIL,
+        repository_url = metadata::REPOSITORY_URL,
     ))
 }
 

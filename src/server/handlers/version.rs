@@ -1,10 +1,13 @@
 use axum::Json;
 
-use crate::models::response::VersionResponse;
+use crate::{metadata, models::response::VersionResponse};
 
 pub async fn version() -> Json<VersionResponse> {
     Json(VersionResponse {
-        name: env!("CARGO_PKG_NAME"),
-        version: env!("CARGO_PKG_VERSION"),
+        name: metadata::APP_NAME,
+        version: metadata::APP_VERSION,
+        build_date: metadata::BUILD_DATE,
+        git_commit: metadata::GIT_COMMIT,
+        release_channel: metadata::RELEASE_CHANNEL,
     })
 }

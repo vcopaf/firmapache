@@ -25,6 +25,7 @@
         <button class="nav-button" type="button" data-section-target="validacion"><span>✓</span><strong>Validacion</strong></button>
         <button class="nav-button" type="button" data-section-target="configuracion"><span>⌘</span><strong>Configuracion</strong></button>
         <button class="nav-button" type="button" data-section-target="diagnostico"><span>!</span><strong>Diagnostico</strong></button>
+        <button class="nav-button" type="button" data-section-target="acerca"><span>i</span><strong>Acerca de</strong></button>
       </nav>
       <div class="sidebar-footer">
         <span id="sidebar-status-dot" class="status-dot pending"></span>
@@ -83,9 +84,19 @@
               <span>Comportamiento de firma</span>
               <strong id="dashboard-dev-mode">-</strong>
             </article>
+            <article class="metric-card">
+              <span>Version</span>
+              <strong id="dashboard-version">0.1.0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Canal</span>
+              <strong id="dashboard-release-channel">stable</strong>
+            </article>
           </div>
           <dl class="summary dashboard-summary">
             <div class="wide"><dt>Identidad predeterminada</dt><dd id="dashboard-default-identity">-</dd></div>
+            <div><dt>Build date</dt><dd id="dashboard-build-date">-</dd></div>
+            <div><dt>Commit</dt><dd id="dashboard-git-commit">-</dd></div>
           </dl>
           <div class="quick-actions">
             <button id="quick-sign-file" type="button">Firmar archivo</button>
@@ -125,6 +136,9 @@
       <dl class="summary">
         <div><dt>Servicio</dt><dd id="service-name">-</dd></div>
         <div><dt>Version</dt><dd id="service-version">-</dd></div>
+        <div><dt>Build date</dt><dd id="service-build-date">-</dd></div>
+        <div><dt>Commit</dt><dd id="service-git-commit">-</dd></div>
+        <div><dt>Canal</dt><dd id="service-release-channel">-</dd></div>
         <div><dt>Modo</dt><dd id="service-mode">-</dd></div>
         <div><dt>Puerto</dt><dd id="service-port">-</dd></div>
         <div class="wide"><dt>Driver activo</dt><dd id="active-library-path">-</dd></div>
@@ -446,6 +460,30 @@
       </div>
       <div id="diagnostics-result" class="list empty">Sin diagnostico.</div>
       <p class="quiet">El diagnostico no incluye PIN, claves privadas, firmas completas ni contenido de documentos.</p>
+    </section>
+
+    <section class="card about-card" data-section="acerca">
+      <div class="card-title">
+        <div class="dashboard-hero">
+          <img class="dashboard-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="">
+          <div>
+            <h2>FirMapache</h2>
+            <p class="quiet">Firma digital local para JSON/JWS y PDF/PAdES.</p>
+          </div>
+        </div>
+        <span id="about-release-badge" class="badge active">v0.1.0</span>
+      </div>
+      <dl class="summary about-summary">
+        <div><dt>Version</dt><dd id="about-version">0.1.0</dd></div>
+        <div><dt>Canal</dt><dd id="about-release-channel">stable</dd></div>
+        <div><dt>Build date</dt><dd id="about-build-date">-</dd></div>
+        <div><dt>Commit</dt><dd id="about-git-commit">-</dd></div>
+        <div><dt>Licencia</dt><dd id="about-license">GPL-3.0</dd></div>
+        <div><dt>Autor</dt><dd id="about-author">Vladimir Copa Fabian</dd></div>
+        <div><dt>Contacto</dt><dd id="about-contact">vcopafabian@gmail.com</dd></div>
+        <div class="wide"><dt>Repositorio</dt><dd><a id="about-repository" href="https://github.com/vcopaf/firmapache">https://github.com/vcopaf/firmapache</a></dd></div>
+      </dl>
+      <p class="quiet">FirMapache se distribuye bajo GPLv3. Consulte LICENSE para más información.</p>
     </section>
       </main>
     </div>

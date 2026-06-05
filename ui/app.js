@@ -30,6 +30,7 @@ const sectionTitles = {
   validacion: "Validacion",
   configuracion: "Configuracion",
   diagnostico: "Diagnostico",
+  acerca: "Acerca de",
 };
 
 function showError(error) {
@@ -345,8 +346,13 @@ function updateDashboard() {
   document.getElementById("dashboard-dev-mode").textContent = signingState.warning
     ? "Autofirma incompleta"
     : signingState.modeLabel;
+  document.getElementById("dashboard-version").textContent = serviceStatus?.version || "0.1.0";
+  document.getElementById("dashboard-release-channel").textContent = serviceStatus?.release_channel || "stable";
+  document.getElementById("dashboard-build-date").textContent = serviceStatus?.build_date || "-";
+  document.getElementById("dashboard-git-commit").textContent = serviceStatus?.git_commit || "-";
   document.getElementById("dashboard-default-identity").textContent =
     defaultIdentity ? `${identityShortTitle(defaultIdentity)} - ${tokenGroupLabel(defaultIdentity)}` : "Sin identidad disponible";
+  renderAbout();
 }
 
 async function loadStatus() {
@@ -355,6 +361,9 @@ async function loadStatus() {
   serviceStatus = status;
   document.getElementById("service-name").textContent = status.service;
   document.getElementById("service-version").textContent = status.version;
+  document.getElementById("service-build-date").textContent = status.build_date || "-";
+  document.getElementById("service-git-commit").textContent = status.git_commit || "-";
+  document.getElementById("service-release-channel").textContent = status.release_channel || "-";
   document.getElementById("service-mode").textContent = status.https ? "HTTPS" : "HTTP";
   document.getElementById("service-port").textContent = status.port;
   document.getElementById("active-library-path").textContent =
@@ -363,7 +372,37 @@ async function loadStatus() {
   indicator.textContent = status.active ? "Activo" : "No disponible";
   indicator.className = `badge ${status.active ? "active" : "pending"}`;
   setAppStatus("FirMapache operativo", "active");
+  renderAbout();
   updateDashboard();
+}
+
+function renderAbout() {
+  if (windowMode !== "main") {
+    return;
+  }
+  const status = serviceStatus || {};
+  const setText = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value || "-";
+    }
+  };
+  setText("about-version", status.version || "0.1.0");
+  setText("about-release-channel", status.release_channel || "stable");
+  setText("about-build-date", status.build_date || "-");
+  setText("about-git-commit", status.git_commit || "-");
+  setText("about-license", status.license || "GPL-3.0");
+  setText("about-author", status.author || "Vladimir Copa Fabian");
+  setText("about-contact", status.contact_email || "vcopafabian@gmail.com");
+  const badge = document.getElementById("about-release-badge");
+  if (badge) {
+    badge.textContent = `v${status.version || "0.1.0"}`;
+  }
+  const repository = document.getElementById("about-repository");
+  if (repository) {
+    repository.textContent = status.repository_url || "https://github.com/vcopaf/firmapache";
+    repository.href = status.repository_url || "https://github.com/vcopaf/firmapache";
+  }
 }
 
 async function loadConfig() {
@@ -1887,7 +1926,11 @@ function renderDiagnostics(report) {
   const container = document.getElementById("diagnostics-result");
   showItems(container, [
     item("Sistema", [
+      `Aplicacion: ${report.app_name || "FirMapache"}`,
       `Version: ${report.app_version}`,
+      `Build date: ${report.build_date || "-"}`,
+      `Commit: ${report.git_commit || "-"}`,
+      `Canal: ${report.release_channel || "stable"}`,
       `Servidor: ${report.server_https ? "HTTPS" : "HTTP"} ${report.server_host}:${report.server_port}`,
       `URL activa: ${report.server_url || "-"}`,
       `Estado servidor: ${report.server_active ? "activo" : "no disponible"}`,
