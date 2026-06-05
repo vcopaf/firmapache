@@ -338,12 +338,6 @@ impl AppConfig {
                     token.id
                 )));
             }
-            if token.password_env.trim().is_empty() {
-                return Err(ConfigError::Invalid(format!(
-                    "development.pkcs12_tokens password_env cannot be empty for {}",
-                    token.id
-                )));
-            }
         }
 
         Ok(())

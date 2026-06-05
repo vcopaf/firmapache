@@ -20,7 +20,7 @@ use mini_firmador::{
     },
     server::{self, AppState},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     net::TcpListener,
@@ -108,6 +108,28 @@ pub struct Pkcs12TokenView {
     path_exists: bool,
     password_env_defined: bool,
     identity: Option<SigningIdentity>,
+}
+
+#[derive(Deserialize)]
+pub struct GenerateVirtualTokenP12Input {
+    id: String,
+    label: String,
+    common_name: String,
+    organization: String,
+    country: String,
+    validity_days: u32,
+    password: String,
+    output_path: String,
+}
+
+#[derive(Serialize)]
+pub struct GenerateVirtualTokenP12Response {
+    path: String,
+    subject: Option<String>,
+    issuer: Option<String>,
+    not_before: Option<String>,
+    not_after: Option<String>,
+    identity_id: String,
 }
 
 #[derive(Serialize)]
@@ -321,6 +343,62 @@ pub async fn select_pkcs12_file(app: AppHandle) -> Result<Option<String>, String
         .into_path()
         .map_err(|error| format!("No se pudo obtener la ruta seleccionada: {error}"))?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn select_p12_output_path(app: AppHandle) -> Result<Option<String>, String> {
+    let destination = app
+        .dialog()
+        .file()
+        .add_filter("PKCS#12", &["p12", "pfx"])
+        .set_file_name("dev-token-local.p12")
+        .blocking_save_file();
+    let Some(destination) = destination else {
+        return Ok(None);
+    };
+    let path = destination
+        .into_path()
+        .map_err(|error| format!("No se pudo obtener la ruta de guardado: {error}"))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn generate_virtual_token_p12(
+    state: State<'_, AppState>,
+    input: GenerateVirtualTokenP12Input,
+) -> Result<GenerateVirtualTokenP12Response, String> {
+    validate_virtual_token_input(&input)?;
+    let generated = pkcs12::provider::generate_virtual_token(pkcs12::provider::GenerateVirtualTokenInput {
+        id: input.id.trim().to_owned(),
+        label: input.label.trim().to_owned(),
+        common_name: input.common_name.trim().to_owned(),
+        organization: input.organization.trim().to_owned(),
+        country: input.country.trim().to_ascii_uppercase(),
+        validity_days: input.validity_days,
+        password: input.password,
+        output_path: input.output_path.trim().to_owned(),
+    })
+    .map_err(|error| error.to_string())?;
+
+    let mut config = current_config(&state)?;
+    config
+        .development
+        .pkcs12_tokens
+        .retain(|token| token.id != generated.token.id);
+    config.development.pkcs12_tokens.push(generated.token);
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config)
+        .map_err(|error| error.to_string())?;
+
+    Ok(GenerateVirtualTokenP12Response {
+        path: generated.identity.source_path.clone().unwrap_or_default(),
+        subject: generated.identity.subject.clone(),
+        issuer: generated.identity.issuer.clone(),
+        not_before: generated.identity.not_before.clone(),
+        not_after: generated.identity.not_after.clone(),
+        identity_id: generated.identity.identity_id,
+    })
 }
 
 #[tauri::command]
@@ -1085,6 +1163,43 @@ fn pkcs12_token_view(token: &Pkcs12TokenConfig) -> Pkcs12TokenView {
         password_env_defined: std::env::var(&token.password_env).is_ok(),
         identity,
     }
+}
+
+fn validate_virtual_token_input(input: &GenerateVirtualTokenP12Input) -> Result<(), String> {
+    let id = input.id.trim();
+    if id.is_empty() {
+        return Err("ID interno no puede estar vacío".to_owned());
+    }
+    if !id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("ID interno solo puede usar letras, números, guion y guion bajo".to_owned());
+    }
+    if input.label.trim().is_empty() {
+        return Err("Label del token no puede estar vacío".to_owned());
+    }
+    if input.common_name.trim().is_empty() {
+        return Err("Common Name / CN no puede estar vacío".to_owned());
+    }
+    let country = input.country.trim();
+    if country.len() != 2 || !country.chars().all(|character| character.is_ascii_alphabetic()) {
+        return Err("País / C debe tener 2 letras".to_owned());
+    }
+    if input.validity_days == 0 {
+        return Err("Vigencia en días debe ser mayor a 0".to_owned());
+    }
+    if input.password.is_empty() {
+        return Err("Contraseña no puede estar vacía".to_owned());
+    }
+    let path = input.output_path.trim();
+    if !(path.ends_with(".p12") || path.ends_with(".pfx")) {
+        return Err("La ruta de guardado debe terminar en .p12 o .pfx".to_owned());
+    }
+    if Path::new(path).exists() {
+        return Err("El archivo de salida ya existe. Elija otra ruta.".to_owned());
+    }
+    Ok(())
 }
 
 fn server_url(config: &AppConfig) -> String {

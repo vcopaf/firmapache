@@ -1,7 +1,20 @@
 use std::{env, fs, path::Path};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use openssl::{hash::MessageDigest, pkcs12::Pkcs12, sign::Signer};
+use openssl::{
+    asn1::{Asn1Integer, Asn1Time},
+    bn::{BigNum, MsbOption},
+    hash::MessageDigest,
+    nid::Nid,
+    pkcs12::Pkcs12,
+    pkey::{PKey, Private},
+    rsa::Rsa,
+    sign::Signer,
+    x509::{
+        X509, X509NameBuilder,
+        extension::{BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectKeyIdentifier},
+    },
+};
 use tracing::warn;
 use x509_parser::{parse_x509_certificate, time::ASN1Time};
 
@@ -11,6 +24,22 @@ use crate::{
 };
 
 use super::Pkcs12Error;
+
+pub struct GenerateVirtualTokenInput {
+    pub id: String,
+    pub label: String,
+    pub common_name: String,
+    pub organization: String,
+    pub country: String,
+    pub validity_days: u32,
+    pub password: String,
+    pub output_path: String,
+}
+
+pub struct GeneratedVirtualToken {
+    pub token: Pkcs12TokenConfig,
+    pub identity: SigningIdentity,
+}
 
 pub fn configured_identities(config: &AppConfig) -> Vec<SigningIdentity> {
     config
@@ -45,6 +74,122 @@ pub fn sign_rs256(
         .update(data)
         .map_err(|_| Pkcs12Error::SigningFailed)?;
     signer.sign_to_vec().map_err(|_| Pkcs12Error::SigningFailed)
+}
+
+pub fn generate_virtual_token(
+    input: GenerateVirtualTokenInput,
+) -> Result<GeneratedVirtualToken, Pkcs12Error> {
+    if Path::new(&input.output_path).exists() {
+        return Err(Pkcs12Error::OutputAlreadyExists(input.output_path));
+    }
+
+    let rsa = Rsa::generate(2048).map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let private_key = PKey::from_rsa(rsa).map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let certificate = self_signed_certificate(&input, &private_key)?;
+    let mut builder = Pkcs12::builder();
+    builder.name(&input.label);
+    builder.pkey(&private_key);
+    builder.cert(&certificate);
+    let pkcs12 = builder
+        .build2(&input.password)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let der = pkcs12.to_der().map_err(|_| Pkcs12Error::GenerationFailed)?;
+    fs::write(&input.output_path, der)?;
+
+    let token = Pkcs12TokenConfig {
+        id: input.id,
+        label: input.label,
+        path: input.output_path,
+        password_env: String::new(),
+    };
+    let certificate_der = certificate
+        .to_der()
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let identity = identity_from_certificate(&token, &certificate_der, true);
+
+    Ok(GeneratedVirtualToken { token, identity })
+}
+
+fn self_signed_certificate(
+    input: &GenerateVirtualTokenInput,
+    private_key: &PKey<Private>,
+) -> Result<X509, Pkcs12Error> {
+    let mut name = X509NameBuilder::new().map_err(|_| Pkcs12Error::GenerationFailed)?;
+    name.append_entry_by_nid(Nid::COMMONNAME, &input.common_name)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    name.append_entry_by_nid(Nid::ORGANIZATIONNAME, &input.organization)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    name.append_entry_by_nid(Nid::COUNTRYNAME, &input.country)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let name = name.build();
+
+    let mut serial = BigNum::new().map_err(|_| Pkcs12Error::GenerationFailed)?;
+    serial
+        .rand(128, MsbOption::MAYBE_ZERO, false)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let serial = Asn1Integer::from_bn(&serial).map_err(|_| Pkcs12Error::GenerationFailed)?;
+
+    let mut builder = X509::builder().map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_version(2)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_serial_number(&serial)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_subject_name(&name)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_issuer_name(&name)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_pubkey(private_key)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let not_before = Asn1Time::days_from_now(0).map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let not_after =
+        Asn1Time::days_from_now(input.validity_days).map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_not_before(&not_before)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .set_not_after(&not_after)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+
+    let basic = BasicConstraints::new()
+        .critical()
+        .build()
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .append_extension(basic)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let key_usage = KeyUsage::new()
+        .critical()
+        .digital_signature()
+        .non_repudiation()
+        .build()
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .append_extension(key_usage)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let eku = ExtendedKeyUsage::new()
+        .client_auth()
+        .email_protection()
+        .build()
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .append_extension(eku)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    let subject_key_identifier = SubjectKeyIdentifier::new()
+        .build(&builder.x509v3_context(None, None))
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    builder
+        .append_extension(subject_key_identifier)
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+
+    builder
+        .sign(private_key, MessageDigest::sha256())
+        .map_err(|_| Pkcs12Error::GenerationFailed)?;
+    Ok(builder.build())
 }
 
 pub fn test_token(token: &Pkcs12TokenConfig) -> Result<SigningIdentity, Pkcs12Error> {

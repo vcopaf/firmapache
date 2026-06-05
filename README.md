@@ -261,6 +261,12 @@ virtuales de desarrollo (`provider = "pkcs12"`). Esto no reemplaza a PKCS#11 en
 produccion: sirve para QA, pruebas automatizadas y ambientes locales donde no se
 quiere depender de un token fisico.
 
+Tambien puede crear un token virtual nuevo desde la UI. La app genera una clave
+RSA 2048, un certificado X.509 self-signed con SHA256withRSA, KeyUsage
+`digitalSignature` y `nonRepudiation`, y empaqueta clave privada + certificado
+en un `.p12/.pfx` protegido por la contraseña indicada. La clave privada no se
+escribe fuera del `.p12/.pfx`.
+
 Configuracion de ejemplo:
 
 ```toml
@@ -293,6 +299,31 @@ puro; no se agrega PIN, ruta, contraseña ni `identity_id` al contrato publico.
 
 En firma manual, si selecciona una identidad P12, el campo de PIN se trata como
 `PIN / contraseña P12` para esa firma. La contraseña no se guarda.
+
+Crear token virtual desde la app:
+
+1. En **Configuracion > Tokens virtuales P12/PFX**, pulse **Guardar como...** y
+   elija una ruta `.p12` o `.pfx`.
+2. Complete ID, etiqueta, CN, organizacion, pais, vigencia y contraseña.
+3. Pulse **Crear token virtual**.
+4. MiniFirmador guarda el archivo y lo registra automaticamente en
+   `development.pkcs12_tokens` con `password_env = ""`.
+
+Con `password_env = ""`, el token se puede usar en firma manual escribiendo la
+contraseña en la UI. Para usarlo en autofirma, configure una variable de entorno
+y actualice el TOML, por ejemplo:
+
+```bash
+export MINI_FIRMADOR_DEV_P12_PASSWORD="clave"
+```
+
+```toml
+[[development.pkcs12_tokens]]
+id = "dev-token-local"
+label = "Token virtual local"
+path = "/home/user/dev-token.p12"
+password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
+```
 
 Limitaciones de seguridad:
 

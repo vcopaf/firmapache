@@ -263,6 +263,44 @@ async function addPkcs12Token() {
   document.getElementById("development-message").textContent = "Token virtual importado";
 }
 
+async function selectP12OutputPath() {
+  const selected = await invoke("select_p12_output_path");
+  if (selected) {
+    document.getElementById("create-p12-output").value = selected;
+  }
+}
+
+async function generateP12Token() {
+  const password = document.getElementById("create-p12-password").value;
+  const confirm = document.getElementById("create-p12-password-confirm").value;
+  if (password !== confirm) {
+    showError("La contraseña y la confirmación no coinciden");
+    return;
+  }
+  try {
+    const response = await invoke("generate_virtual_token_p12", {
+      input: {
+        id: document.getElementById("create-p12-id").value,
+        label: document.getElementById("create-p12-label").value,
+        commonName: document.getElementById("create-p12-cn").value,
+        organization: document.getElementById("create-p12-o").value,
+        country: document.getElementById("create-p12-c").value,
+        validityDays: Number(document.getElementById("create-p12-days").value),
+        password,
+        outputPath: document.getElementById("create-p12-output").value,
+      },
+    });
+    pkcs12Tokens = await invoke("list_pkcs12_tokens");
+    renderPkcs12Tokens();
+    await refreshSigningIdentities();
+    document.getElementById("development-message").textContent =
+      `Token virtual creado correctamente: ${response.identity_id}`;
+  } finally {
+    document.getElementById("create-p12-password").value = "";
+    document.getElementById("create-p12-password-confirm").value = "";
+  }
+}
+
 async function removePkcs12Token(id) {
   pkcs12Tokens = await invoke("remove_pkcs12_token", { id });
   renderPkcs12Tokens();
@@ -1289,6 +1327,8 @@ function bindEvents() {
     document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
     document.getElementById("choose-pkcs12-file").addEventListener("click", () => run(selectPkcs12File));
     document.getElementById("add-pkcs12-token").addEventListener("click", () => run(addPkcs12Token));
+    document.getElementById("choose-p12-output").addEventListener("click", () => run(selectP12OutputPath));
+    document.getElementById("generate-p12-token").addEventListener("click", () => run(generateP12Token));
     document.getElementById("development-identity").addEventListener("change", () => {
       document.getElementById("development-message").textContent = "";
     });

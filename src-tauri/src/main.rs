@@ -67,6 +67,8 @@ fn main() {
             commands::update_development_config,
             commands::test_development_config,
             commands::select_pkcs12_file,
+            commands::select_p12_output_path,
+            commands::generate_virtual_token_p12,
             commands::list_pkcs12_tokens,
             commands::add_pkcs12_token,
             commands::remove_pkcs12_token,

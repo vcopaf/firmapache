@@ -140,6 +140,53 @@
       <div class="button-row">
         <button id="add-pkcs12-token" class="secondary">Importar token virtual</button>
       </div>
+
+      <h3>Crear token virtual</h3>
+      <p class="modal-error">Token virtual solo para desarrollo. No usar para producción.</p>
+      <div class="pkcs12-grid">
+        <div>
+          <label for="create-p12-id">ID interno</label>
+          <input id="create-p12-id" type="text" value="dev-token-local">
+        </div>
+        <div>
+          <label for="create-p12-label">Label del token</label>
+          <input id="create-p12-label" type="text" value="Token virtual local">
+        </div>
+        <div>
+          <label for="create-p12-days">Vigencia en días</label>
+          <input id="create-p12-days" type="number" min="1" step="1" value="365">
+        </div>
+        <div>
+          <label for="create-p12-cn">Common Name / CN</label>
+          <input id="create-p12-cn" type="text" value="MiniFirmador Dev">
+        </div>
+        <div>
+          <label for="create-p12-o">Organización / O</label>
+          <input id="create-p12-o" type="text" value="MiniFirmador">
+        </div>
+        <div>
+          <label for="create-p12-c">País / C</label>
+          <input id="create-p12-c" type="text" value="BO" maxlength="2">
+        </div>
+      </div>
+      <div class="pkcs12-grid">
+        <div>
+          <label for="create-p12-password">Contraseña</label>
+          <input id="create-p12-password" type="password" autocomplete="off">
+        </div>
+        <div>
+          <label for="create-p12-password-confirm">Confirmar contraseña</label>
+          <input id="create-p12-password-confirm" type="password" autocomplete="off">
+        </div>
+        <div>
+          <label for="create-p12-output">Ruta de guardado</label>
+          <input id="create-p12-output" type="text" readonly placeholder="Seleccione .p12/.pfx">
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="choose-p12-output" class="secondary">Guardar como...</button>
+        <button id="generate-p12-token" class="secondary">Crear token virtual</button>
+      </div>
       <div id="pkcs12-tokens" class="list empty">Sin tokens virtuales.</div>
     </section>
 

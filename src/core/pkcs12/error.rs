@@ -20,4 +20,8 @@ pub enum Pkcs12Error {
     PrivateKeyNotFound,
     #[error("PKCS#12 signing failed")]
     SigningFailed,
+    #[error("PKCS#12 generation failed")]
+    GenerationFailed,
+    #[error("PKCS#12 output file already exists: {0}")]
+    OutputAlreadyExists(String),
 }
