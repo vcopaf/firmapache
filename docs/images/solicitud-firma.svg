@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Placeholder Solicitud de Firma FirMapache</title>
+  <desc id="desc">Placeholder para captura de la ventana de solicitud de firma.</desc>
+  <rect width="960" height="540" fill="#eef2f7"/>
+  <rect x="230" y="54" width="500" height="432" rx="24" fill="#ffffff" stroke="#cbd5e1"/>
+  <rect x="278" y="142" width="404" height="52" rx="12" fill="#f2f5f8"/>
+  <rect x="278" y="222" width="404" height="52" rx="12" fill="#f2f5f8"/>
+  <rect x="278" y="302" width="404" height="52" rx="12" fill="#f2f5f8"/>
+  <rect x="420" y="400" width="150" height="48" rx="12" fill="#1f2933"/>
+  <text x="480" y="104" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="#1f2933">Solicitud de firma</text>
+  <text x="480" y="432" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#ffffff">Aprobar</text>
+</svg>

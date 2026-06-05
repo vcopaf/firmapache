@@ -3,6 +3,7 @@ name = "firmapache-desktop"
 version = "0.1.0"
 description = "Interfaz local de administracion para FirMapache"
 edition = "2024"
+license = "GPL-3.0"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

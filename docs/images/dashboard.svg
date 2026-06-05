@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Placeholder Dashboard FirMapache</title>
+  <desc id="desc">Placeholder para captura del dashboard de FirMapache.</desc>
+  <rect width="960" height="540" fill="#f6f8fb"/>
+  <rect x="36" y="36" width="180" height="468" rx="20" fill="#1f2933"/>
+  <rect x="252" y="58" width="672" height="88" rx="18" fill="#ffffff" stroke="#d9e2ec"/>
+  <rect x="252" y="178" width="204" height="124" rx="18" fill="#ffffff" stroke="#d9e2ec"/>
+  <rect x="486" y="178" width="204" height="124" rx="18" fill="#ffffff" stroke="#d9e2ec"/>
+  <rect x="720" y="178" width="204" height="124" rx="18" fill="#ffffff" stroke="#d9e2ec"/>
+  <rect x="252" y="332" width="672" height="172" rx="18" fill="#ffffff" stroke="#d9e2ec"/>
+  <text x="480" y="106" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="#1f2933">Dashboard</text>
+  <text x="480" y="444" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#52616f">Agregar captura real de FirMapache</text>
+</svg>

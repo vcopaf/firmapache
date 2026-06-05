@@ -1,6 +1,27 @@
-# FirMapache
+<p align="center">
+  <img src="src-tauri/icons/icon.png" alt="FirMapache" width="120">
+</p>
 
-Firma digital local para JSON/JWS y PDF/PAdES con soporte PKCS#11 y PKCS#12.
+<h1 align="center">FirMapache</h1>
+
+<p align="center">
+  Firma digital local para JSON/JWS y PDF/PAdES con soporte PKCS#11 y PKCS#12.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License GPLv3" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg"></a>
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2024-orange.svg">
+  <img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB.svg">
+  <img alt="PKCS#11" src="https://img.shields.io/badge/PKCS%2311-supported-success.svg">
+  <img alt="PKCS#12" src="https://img.shields.io/badge/PKCS%2312-supported-success.svg">
+  <img alt="JWS" src="https://img.shields.io/badge/JWS-RS256-informational.svg">
+  <img alt="PDF PAdES" src="https://img.shields.io/badge/PDF%2FPAdES-ETSI.CAdES.detached-informational.svg">
+</p>
+
+FirMapache es un firmador local escrito en Rust y Tauri. Expone un servicio
+HTTPS local compatible con flujos `POST /sign`, permite aprobar firmas desde una
+ventana de escritorio y soporta tokens fisicos PKCS#11 y tokens virtuales
+PKCS#12/PFX para pruebas controladas.
 
 FirMapache combina un servicio HTTPS local compatible con `POST /sign`, una
 interfaz de escritorio Tauri con bandeja del sistema y un core Rust reutilizable
@@ -9,6 +30,54 @@ PDF `ETSI.CAdES.detached`, cache de tokens/certificados, validacion,
 diagnostico y flujo visual de aprobacion. El PIN se solicita solo en la UI local
 o comandos internos de escritorio, no se guarda y no forma parte del payload
 publico de `POST /sign`.
+
+## Tabla de contenido
+
+- [Características](#características)
+- [Capturas](#capturas)
+- [Requisitos](#requisitos)
+- [Instalación y ejecución](#instalación-y-ejecución)
+- [Configuración](#configuración)
+- [Interfaz Tauri](#interfaz-tauri)
+- [Firma manual](#firma-manual)
+- [API](#api)
+- [Validación y diagnóstico](#validación-y-diagnóstico)
+- [Seguridad](#seguridad)
+- [Desarrollo](#desarrollo)
+- [Contribuir](#contribuir)
+- [GitHub Topics sugeridos](#github-topics-sugeridos)
+- [Licencia](#licencia)
+
+## Características
+
+- ✓ Firma JSON/JWS compact con RS256.
+- ✓ Firma PDF con `/SubFilter /ETSI.CAdES.detached`.
+- ✓ Compatibilidad con tokens fisicos PKCS#11.
+- ✓ Compatibilidad con tokens virtuales PKCS#12/PFX para QA y desarrollo.
+- ✓ Soporte probado con ePass2003 y driver Feitian `libcastle.so`.
+- ✓ Selección por identidad/certificado de firma.
+- ✓ Servicio HTTPS local en `https://localhost:4637/`.
+- ✓ Interfaz de escritorio Tauri v2 con bandeja del sistema.
+- ✓ Ventana dedicada para solicitudes de firma.
+- ✓ Firma manual multiarchivo para JSON y PDF.
+- ✓ Empaquetado ZIP automatico cuando se firman varios archivos manualmente.
+- ✓ Autofirma configurable para entornos controlados.
+- ✓ Cache de tokens/certificados y watcher PC/SC.
+- ✓ Validación JWS y diagnóstico estructural PDF.
+- ✓ Diagnóstico exportable sin PIN, claves privadas ni contenido de documentos.
+
+## Capturas
+
+Las capturas reales se agregaran cuando se prepare el paquete publico. La
+estructura ya esta lista en `docs/images/`.
+
+| Pantalla | Placeholder |
+| --- | --- |
+| Dashboard | ![Dashboard](docs/images/dashboard.svg) |
+| Firma manual | ![Firma manual](docs/images/firma-manual.svg) |
+| Solicitud de firma | ![Solicitud de firma](docs/images/solicitud-firma.svg) |
+| Identidades | ![Identidades](docs/images/identidades.svg) |
+| Diagnóstico | ![Diagnóstico](docs/images/diagnostico.svg) |
 
 ## Requisitos
 
@@ -40,7 +109,7 @@ error en los endpoints PKCS#11 en lugar de usar automaticamente otro modulo.
 Si una ruta persistida no existe, el servicio registra la situacion y continua
 con la autodeteccion.
 
-## Configuracion persistente
+## Configuración
 
 Al iniciar, el servicio crea y carga automaticamente:
 
@@ -132,7 +201,7 @@ Al cargar un archivo creado por una version anterior sin `server.https`, el
 antiguo puerto por defecto `4856` se migra automaticamente a `4637`; puertos
 personalizados se conservan.
 
-## Ejecutar
+## Instalación y ejecución
 
 ```bash
 cargo run
@@ -219,10 +288,10 @@ Si cambia el puerto, por ejemplo a `4638`, reinicie el servidor y pruebe:
 curl -k https://localhost:4638/status
 ```
 
-### Modo desarrollo con autofirma
+### Comportamiento de firma y autofirma
 
-El modo desarrollo viene desactivado por defecto. Cuando esta apagado, el flujo
-normal no cambia: `POST /sign` crea una sesion pendiente y abre la ventana
+La autofirma viene desactivada por defecto. Cuando esta apagada, el flujo normal
+no cambia: `POST /sign` crea una sesion pendiente y abre la ventana
 `Solicitud de firma` para que el usuario seleccione identidad e ingrese PIN.
 
 Configuracion de ejemplo:
@@ -250,19 +319,20 @@ Si falta identidad, no hay PIN/contraseña disponible o la autofirma falla:
   interactiva normal;
 - con `fallback_to_modal = false`, `POST /sign` responde un error JSON claro.
 
-La UI incluye una seccion **Desarrollo > Autofirma** con este flujo:
+La UI incluye una seccion **Configuracion > Firma** con este flujo:
 
-1. Activar autofirma.
+1. Elegir **Autofirma** como comportamiento de firma.
 2. Elegir identidad.
 3. Ingresar PIN / contraseña.
 4. Opcionalmente marcar **Recordar PIN localmente**.
 5. Pulsar **Probar autofirma**.
 
 Si se recuerda el PIN, queda almacenado localmente en este equipo y claramente
-marcado como modo desarrollo. No usar esta opcion en equipos compartidos.
+marcado como configuracion local de autofirma. No usar esta opcion en equipos
+compartidos.
 
-Advertencia: no use este modo con tokens oficiales en produccion. Permite firmar
-sin confirmacion visual.
+Advertencia: no use autofirma con tokens oficiales en entornos no controlados.
+Permite firmar sin confirmacion visual.
 
 ### Tokens virtuales P12/PFX de desarrollo
 
@@ -295,23 +365,23 @@ predeterminado. `password_env` se mantiene como compatibilidad para instalacione
 existentes. Las identidades se muestran junto a las fisicas:
 
 ```text
-[PKCS#12 DEV] Token virtual QA
+[PKCS#12] Token virtual QA
   CN=Certificado Dev QA
 ```
 
 Para autofirma, seleccione la identidad `pkcs12:...` como identidad de
-desarrollo y active `auto_sign`. `POST /sign` sigue recibiendo el mismo payload
-puro; no se agrega PIN, ruta, contraseña ni `identity_id` al contrato publico.
+autofirma. `POST /sign` sigue recibiendo el mismo payload puro; no se agrega
+PIN, ruta, contraseña ni `identity_id` al contrato publico.
 
 En firma manual, si selecciona una identidad P12, el campo de PIN se trata como
 `PIN / contraseña P12` para esa firma. La contraseña no se guarda.
 
 Crear token virtual desde la app:
 
-1. En **Desarrollo > Tokens virtuales P12/PFX**, pulse **Guardar como...** y
-   elija una ruta `.p12` o `.pfx`.
-2. Complete ID, etiqueta, CN, organizacion, pais, vigencia y contraseña.
-3. Pulse **Crear token virtual**.
+1. En **Identidades > Tokens virtuales P12/PFX**, complete ID, etiqueta, CN,
+   organizacion, pais, vigencia y contraseña.
+2. Pulse **Crear token virtual**.
+3. FirMapache abre el dialogo para guardar el archivo `.p12` o `.pfx`.
 4. FirMapache guarda el archivo y lo registra automaticamente en
    `development.pkcs12_tokens`.
 5. La identidad queda disponible inmediatamente y la app pregunta si desea
@@ -375,24 +445,51 @@ que el token seleccionado ya no esta disponible.
 
 ## Firma manual
 
-La seccion **Firma manual** permite seleccionar un archivo local sin depender de
-una web externa. FirMapache detecta automaticamente el tipo de archivo y el
-formato de salida:
+La seccion **Firma manual** permite seleccionar uno o varios archivos locales
+sin depender de una web externa. FirMapache detecta automaticamente el tipo de
+archivo y el formato de salida:
 
-- JSON: genera JWS compact y abre **Guardar como** automaticamente.
+- JSON: genera JWS compact.
 - PDF: valida header `%PDF-` y marcador `%%EOF`, genera una firma PDF con
   `/Filter /Adobe.PPKLite`, `/SubFilter /ETSI.CAdES.detached`, `/ByteRange` y
-  CMS/CAdES detached SHA-256, y abre **Guardar como** automaticamente.
-- Otros formatos: se muestran como no soportados.
+  CMS/CAdES detached SHA-256.
+- Otros formatos: se muestran como no soportados y se omiten al firmar.
 
 1. Abrir FirMapache con `cargo tauri dev`.
 2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
    despues de abrir la app.
-3. En **Firma manual**, pulsar **Seleccionar archivo**.
-4. Si el archivo es JSON o PDF, seleccionar identidad de firma, escribir el PIN y
-   pulsar **Firmar**.
-5. Al terminar, la app abre el dialogo **Guardar como** con nombre sugerido
-   `archivo.jws` para JSON o `archivo-firmado.pdf` para PDF.
+3. En **Firma manual**, pulsar **Seleccionar archivos**.
+4. Revisar la lista: `JSON → JWS`, `PDF → PDF/PAdES` o `No soportado`.
+5. Quitar archivos individuales si hace falta o usar **Limpiar** para reiniciar
+   la lista.
+6. Seleccionar identidad de firma, escribir el PIN y pulsar **Firmar N archivos**.
+7. Elegir una carpeta destino.
+
+Si se firma un solo archivo, FirMapache guarda el archivo firmado directamente:
+
+```text
+solicitud.json -> solicitud_firmado.jws
+factura.pdf    -> factura_firmado.pdf
+```
+
+Si se firman varios archivos, FirMapache genera un ZIP unico:
+
+```text
+firmados_dd-mm-yyyy-hh:mm:ss.zip
+```
+
+Dentro del ZIP, los archivos se renombran con el sufijo `_firmado`:
+
+```text
+solicitud_firmado.jws
+factura_firmado.pdf
+contrato_firmado.pdf
+reporte_firmado.jws
+```
+
+Si existe una colision de nombres, FirMapache agrega un contador como
+`factura_firmado(1).pdf` sin preguntar. Si un archivo falla, registra el error,
+continua con los demas y muestra un resumen final.
 
 El archivo guardado contiene el JWS compact en texto:
 
@@ -418,7 +515,7 @@ Limitaciones actuales de PDF: no se implementa TSA, LTV, OCSP ni CRL. La firma
 es detached y usa el certificado seleccionado desde el token PKCS#11. El PIN no
 se guarda ni se registra.
 
-## Validacion y diagnostico
+## Validación y diagnóstico
 
 La seccion **Validacion y diagnostico** permite revisar archivos firmados y el
 estado local del firmador sin exponer informacion sensible.
@@ -459,7 +556,9 @@ Diagnostico del sistema:
 El boton **Exportar diagnostico** guarda un `.json` sin PIN, claves privadas,
 firmas completas, archivos firmados completos ni contenido de documentos.
 
-## Consumo desde NextJS
+## API
+
+### Consumo desde NextJS
 
 El servicio habilita CORS solamente para aplicaciones web servidas desde:
 
@@ -490,7 +589,9 @@ Para `POST /sign/hash`, el navegador puede enviar JSON desde esos mismos
 orígenes; el PIN debe existir solo en la solicitud iniciada por el usuario y
 no debe almacenarse en el frontend.
 
-## Verificar
+## Desarrollo
+
+### Verificar
 
 ```bash
 cargo check
@@ -546,7 +647,7 @@ certificado DER en base64 y metadatos X.509:
 [{"slot_id":1,"id":"01","label":"Certificado de firma","certificate_der_base64":"MIIC...","subject":"CN=...","issuer":"CN=...","serial_number":"...","not_before":"2024-...","not_after":"2026-..."}]
 ```
 
-## API de configuracion
+### API de configuracion
 
 Consultar la configuracion activa:
 
@@ -569,7 +670,7 @@ curl -k -X POST https://localhost:4637/config \
 La configuracion no contiene PIN, certificados privados, sesiones ni datos
 sensibles del token.
 
-## Firma compatible sincrona
+### Firma compatible sincrona
 
 El endpoint `POST /sign` recibe el payload compatible de archivo y formato.
 Actualmente soporta:
@@ -710,7 +811,7 @@ Si una solicitud no se resuelve en cinco minutos, responde con HTTP 408:
 El campo `base64` de entrada tambien puede enviarse sin el prefijo `data:`;
 la salida siempre contiene Base64 estandar limpio.
 
-## Firma de hash
+### Firma de hash
 
 El endpoint `POST /sign/hash` acepta un hash codificado en base64 y firma sus
 bytes con el mecanismo `RSA_PKCS`. El flujo recomendado selecciona el
@@ -757,7 +858,7 @@ Si se omite `certificate_id`, el servicio conserva el modo compatible anterior
 y selecciona una clave privada disponible, registrando una advertencia. No se
 recomienda omitirlo si el token contiene mas de un certificado.
 
-## Verificacion local
+### Verificacion local
 
 El endpoint `POST /verify/hash` verifica una firma `RSA_PKCS` usando solo el
 certificado publico devuelto por `/certificates`. No requiere PIN y no accede
@@ -788,7 +889,7 @@ Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 {"error":"PKCS#11 library not found"}
 ```
 
-## Estructura
+### Estructura
 
 - `src-tauri`: aplicacion de escritorio y comandos que consumen el core.
 - `ui`: interfaz HTML/CSS/JavaScript minima para administracion local.
@@ -798,3 +899,59 @@ Si no se encuentra la biblioteca PKCS#11, `/tokens` responde con HTTP 500:
 - `src/error`: errores convertibles a respuestas HTTP.
 - `src/models`: modelos JSON de la API.
 - `src/utils`: utilidades compartidas futuras.
+
+## Seguridad
+
+- El PIN no forma parte del contrato publico de `POST /sign`.
+- El PIN solo se solicita en la UI local o en comandos internos de escritorio.
+- La app no guarda claves privadas desencriptadas.
+- La cache guarda metadata publica de tokens/certificados, no PIN ni sesiones
+  PKCS#11 logueadas.
+- El diagnostico exportado no incluye PIN, claves privadas, firmas completas ni
+  contenido de documentos.
+- Los tokens virtuales PKCS#12/PFX son para QA, pruebas automatizadas y
+  ambientes controlados. No se recomiendan como reemplazo de tokens fisicos en
+  produccion.
+- El certificado HTTPS local es self-signed y no se instala automaticamente en
+  el trust store del sistema.
+
+Para reportar vulnerabilidades, vea [SECURITY.md](SECURITY.md).
+
+## Contribuir
+
+Las contribuciones son bienvenidas. Antes de enviar cambios:
+
+```bash
+cargo fmt --all
+cargo check
+cargo test
+cargo check --manifest-path src-tauri/Cargo.toml
+node --check ui/app.js
+```
+
+Vea [CONTRIBUTING.md](CONTRIBUTING.md) para el flujo de desarrollo, reporte de
+bugs y propuesta de cambios.
+
+## GitHub Topics sugeridos
+
+Para publicar el repositorio, se sugieren estos topics:
+
+```text
+tauri
+rust
+digital-signature
+pkcs11
+pkcs12
+jws
+pades
+pdf-signature
+linux
+pcsc
+smart-card
+```
+
+## Licencia
+
+FirMapache se distribuye bajo licencia **GPL-3.0**.
+
+Vea [LICENSE](LICENSE) para mas informacion.
