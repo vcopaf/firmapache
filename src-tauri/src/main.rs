@@ -136,48 +136,58 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 .count()
         })
         .unwrap_or(0);
-    let development_label = if config
+    let mode_label = config
         .as_ref()
-        .map(|config| config.development.enabled)
-        .unwrap_or(false)
-    {
-        "Modo desarrollo: Activado"
-    } else {
-        "Modo desarrollo: Desactivado"
-    };
+        .map(tray_mode_label)
+        .unwrap_or_else(|| "Estado: Confirmación manual".to_owned());
+    let identity_label = config.as_ref().and_then(tray_identity_label);
     let pending_label = format!("Solicitudes: {pending_sessions} pendientes");
 
     let title = MenuItemBuilder::with_id("tray_title", "FirMapache").build(app)?;
+    let mode = MenuItemBuilder::with_id("tray_mode", mode_label).build(app)?;
+    let identity = identity_label
+        .as_ref()
+        .map(|label| MenuItemBuilder::with_id("tray_identity", label).build(app))
+        .transpose()?;
     let status = MenuItemBuilder::with_id("tray_status", "Estado: Activo").build(app)?;
     let pending = MenuItemBuilder::with_id("tray_pending", pending_label).build(app)?;
     let open = MenuItemBuilder::with_id("open", "Abrir panel principal").build(app)?;
     let sign_file = MenuItemBuilder::with_id("sign_file", "Firmar archivo...").build(app)?;
     let sessions = MenuItemBuilder::with_id("sessions", "Solicitudes pendientes").build(app)?;
-    let development = MenuItemBuilder::with_id("development", development_label).build(app)?;
     let refresh =
         MenuItemBuilder::with_id("refresh_tokens", "Actualizar tokens/certificados").build(app)?;
     let restart =
         MenuItemBuilder::with_id("restart_server", "Reiniciar servidor local").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[
-            &title,
-            &status,
-            &pending,
-            &separator,
-            &sign_file,
-            &separator,
-            &open,
-            &sessions,
-            &development,
-            &separator,
-            &refresh,
-            &restart,
-            &separator,
-            &quit,
-        ])
-        .build()?;
+    let menu = if let Some(identity) = &identity {
+        MenuBuilder::new(app)
+            .items(&[
+                &title,
+                &mode,
+                &status,
+                identity,
+                &pending,
+                &separator,
+                &sign_file,
+                &separator,
+                &open,
+                &sessions,
+                &separator,
+                &refresh,
+                &restart,
+                &separator,
+                &quit,
+            ])
+            .build()?
+    } else {
+        MenuBuilder::new(app)
+            .items(&[
+                &title, &mode, &status, &pending, &separator, &sign_file, &separator, &open,
+                &sessions, &separator, &refresh, &restart, &separator, &quit,
+            ])
+            .build()?
+    };
 
     let mut tray = TrayIconBuilder::with_id("firmapache")
         .menu(&menu)
@@ -204,4 +214,30 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 
     tray.build(app)?;
     Ok(())
+}
+
+fn tray_mode_label(config: &AppConfig) -> String {
+    if !config.development.enabled || !config.development.auto_sign {
+        return "Estado: Confirmación manual".to_owned();
+    }
+    let has_identity = !config.development.default_identity_id.trim().is_empty();
+    let has_pin = config
+        .development
+        .local_pin
+        .as_deref()
+        .is_some_and(|pin| !pin.is_empty())
+        || std::env::var(&config.development.pin_env).is_ok();
+    if !has_identity || !has_pin {
+        "Estado: Confirmación manual (autofirma incompleta)".to_owned()
+    } else {
+        "Estado: Autofirma".to_owned()
+    }
+}
+
+fn tray_identity_label(config: &AppConfig) -> Option<String> {
+    if !config.development.enabled || !config.development.auto_sign {
+        return None;
+    }
+    let identity_id = config.development.default_identity_id.trim();
+    (!identity_id.is_empty()).then(|| format!("Identidad: {identity_id}"))
 }

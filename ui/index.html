@@ -13,7 +13,7 @@
         <img class="brand-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true">
         <div>
           <strong>FirMapache</strong>
-          <span>Firma digital local</span>
+          <span id="sidebar-signing-mode">Confirmación manual</span>
         </div>
       </div>
       <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Colapsar menu">☰</button>
@@ -22,7 +22,6 @@
         <button class="nav-button" type="button" data-section-target="firmar"><span>✎</span><strong>Firmar</strong></button>
         <button class="nav-button" type="button" data-section-target="solicitudes"><span>◷</span><strong>Solicitudes</strong></button>
         <button class="nav-button" type="button" data-section-target="identidades"><span>▣</span><strong>Identidades</strong></button>
-        <button class="nav-button" type="button" data-section-target="desarrollo"><span>⚙</span><strong>Desarrollo</strong></button>
         <button class="nav-button" type="button" data-section-target="validacion"><span>✓</span><strong>Validacion</strong></button>
         <button class="nav-button" type="button" data-section-target="configuracion"><span>⌘</span><strong>Configuracion</strong></button>
         <button class="nav-button" type="button" data-section-target="diagnostico"><span>!</span><strong>Diagnostico</strong></button>
@@ -39,7 +38,10 @@
           <p class="eyebrow">FirMapache</p>
           <h1 id="section-title">Inicio</h1>
         </div>
-        <button id="refresh-all" class="secondary">Actualizar</button>
+        <div class="header-actions">
+          <span id="global-mode-badge" class="mode-badge manual" title="Todas las firmas requieren aprobación manual.">Confirmación manual</span>
+          <button id="refresh-all" class="secondary">Actualizar</button>
+        </div>
       </header>
 
       <main id="main-view" class="layout">
@@ -78,7 +80,7 @@
               <strong id="dashboard-pending">0</strong>
             </article>
             <article class="metric-card">
-              <span>Modo desarrollo</span>
+              <span>Comportamiento de firma</span>
               <strong id="dashboard-dev-mode">-</strong>
             </article>
           </div>
@@ -90,6 +92,22 @@
             <button id="quick-open-sessions" class="secondary" type="button">Ver solicitudes</button>
             <button id="quick-refresh-tokens" class="secondary" type="button">Actualizar tokens</button>
           </div>
+        </section>
+
+        <section id="signing-summary-card" class="card signing-summary-card manual hidden" data-section="inicio">
+          <div class="card-title">
+            <h2>Estado de firma</h2>
+            <span id="signing-summary-badge" class="mode-badge manual">Confirmación manual</span>
+          </div>
+          <dl class="summary signing-summary">
+            <div><dt>Comportamiento</dt><dd id="signing-summary-mode">Confirmación manual</dd></div>
+            <div><dt>Autofirma</dt><dd id="signing-summary-autosign">Desactivada</dd></div>
+            <div><dt>Proveedor</dt><dd id="signing-summary-provider">-</dd></div>
+            <div><dt>PIN</dt><dd id="signing-summary-pin">No recordado</dd></div>
+            <div class="wide"><dt>Identidad</dt><dd id="signing-summary-identity">-</dd></div>
+            <div class="wide"><dt>Token</dt><dd id="signing-summary-token">-</dd></div>
+          </dl>
+          <p id="signing-summary-behavior" class="signing-behavior">Las solicitudes POST /sign requerirán aprobación manual.</p>
         </section>
 
         <section class="card status-line-card" data-section="inicio">
@@ -154,7 +172,7 @@
         <button id="test-token" class="secondary">Probar driver / token</button>
         <button id="refresh-token-cache" class="secondary">Actualizar tokens/certificados</button>
       </div>
-      <p class="quiet">El PIN de firma normal solo se solicita al aprobar una firma y no se almacena. El modo desarrollo puede recordarlo localmente si usted lo activa.</p>
+      <p class="quiet">El PIN de firma normal solo se solicita al aprobar una firma y no se almacena. La autofirma puede recordarlo localmente si usted lo activa.</p>
       <dl class="summary cache-summary">
         <div><dt>Cache</dt><dd id="cache-status">Cargando tokens y certificados...</dd></div>
         <div><dt>Ultima carga</dt><dd id="cache-loaded-at">-</dd></div>
@@ -165,50 +183,73 @@
 
     </section>
 
-    <section class="card development-card" data-section="desarrollo">
+    <section class="card signing-behavior-card" data-section="configuracion">
       <div class="card-title">
-        <h2>Desarrollo</h2>
-        <span id="development-section-status" class="quiet">Herramientas internas</span>
+        <h2>Firma</h2>
+        <span id="development-section-status" class="quiet">Comportamiento de firma</span>
       </div>
-      <h3>Autofirma</h3>
-      <p class="modal-error">Modo desarrollo permite firmar automáticamente sin confirmación visual. No usar en producción.</p>
-      <div class="development-grid">
-        <label class="toggle-row" for="development-enabled">
-          <input id="development-enabled" type="checkbox">
-          <span>Activar autofirma</span>
+      <div id="development-state-panel" class="state-panel manual">
+        <div>
+          <p class="eyebrow">Estado actual</p>
+          <strong id="development-state-title">Confirmación manual</strong>
+        </div>
+        <dl class="summary state-summary">
+          <div><dt>Comportamiento</dt><dd id="development-state-mode">Confirmación manual</dd></div>
+          <div><dt>Autofirma</dt><dd id="development-state-autosign">Desactivada</dd></div>
+          <div><dt>Proveedor</dt><dd id="development-state-provider">-</dd></div>
+          <div><dt>PIN</dt><dd id="development-state-pin">No recordado</dd></div>
+          <div><dt>Última prueba</dt><dd id="development-state-last-test">Sin ejecutar</dd></div>
+          <div class="wide"><dt>Identidad</dt><dd id="development-state-identity">-</dd></div>
+          <div class="wide"><dt>Comportamiento</dt><dd id="development-state-behavior">Las solicitudes POST /sign requerirán aprobación manual.</dd></div>
+        </dl>
+      </div>
+      <h3>Comportamiento de firma</h3>
+      <div class="behavior-options" role="radiogroup" aria-label="Comportamiento de firma">
+        <label class="behavior-option" for="signing-behavior-manual">
+          <input id="signing-behavior-manual" name="signing-behavior" type="radio" value="manual" checked>
+          <span>
+            <strong>Confirmación manual</strong>
+            <small>Cada solicitud abre la ventana de firma y requiere aprobación.</small>
+          </span>
         </label>
-        <label class="toggle-row" for="development-auto-sign">
-          <input id="development-auto-sign" type="checkbox">
-          <span>Autofirmar solicitudes POST /sign</span>
-        </label>
-        <label class="toggle-row" for="development-fallback">
-          <input id="development-fallback" type="checkbox">
-          <span>Si falla autofirma, abrir modal interactivo</span>
+        <label class="behavior-option" for="signing-behavior-autosign">
+          <input id="signing-behavior-autosign" name="signing-behavior" type="radio" value="autosign">
+          <span>
+            <strong>Autofirma</strong>
+            <small>Las solicitudes pueden firmarse automáticamente con la identidad configurada.</small>
+          </span>
         </label>
       </div>
-      <label for="development-identity">Identidad</label>
-      <select id="development-identity"></select>
-      <label for="development-pin">PIN / Contraseña</label>
-      <div class="password-row">
-        <input id="development-pin" type="password" autocomplete="off" placeholder="PIN o contraseña de la identidad">
-        <button class="password-toggle" type="button" data-toggle-password="development-pin" aria-label="Mostrar PIN">👁</button>
+      <div id="autosign-config-panel" class="autosign-config-panel hidden">
+        <label for="development-identity">Identidad</label>
+        <select id="development-identity"></select>
+        <label for="development-pin">PIN / Contraseña</label>
+        <div class="password-row">
+          <input id="development-pin" type="password" autocomplete="off" placeholder="PIN o contraseña de la identidad">
+          <button class="password-toggle" type="button" data-toggle-password="development-pin" aria-label="Mostrar PIN">👁</button>
+        </div>
+        <label class="toggle-row" for="development-remember-pin">
+          <input id="development-remember-pin" type="checkbox">
+          <span>Recordar PIN localmente</span>
+        </label>
+        <p id="development-pin-warning" class="modal-error hidden">⚠ El PIN se almacenará localmente en este equipo. No utilizar esta opción en equipos compartidos.</p>
+        <dl class="summary server-summary">
+          <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
+        </dl>
+        <div class="button-row">
+          <button id="save-development-config" class="secondary">Guardar configuración de firma</button>
+          <button id="test-development-config" class="secondary">Probar configuración</button>
+        </div>
       </div>
-      <label class="toggle-row" for="development-remember-pin">
-        <input id="development-remember-pin" type="checkbox">
-        <span>Recordar PIN localmente</span>
-      </label>
-      <p id="development-pin-warning" class="modal-error hidden">⚠ El PIN se almacenará localmente en este equipo. No utilizar esta opción en equipos compartidos.</p>
-      <dl class="summary server-summary">
-        <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
-      </dl>
       <div class="button-row">
-        <button id="save-development-config" class="secondary">Guardar autofirma</button>
-        <button id="test-development-config" class="secondary">Probar autofirma</button>
+        <button id="save-signing-behavior" class="secondary">Guardar comportamiento</button>
       </div>
       <p id="development-message" class="quiet"></p>
+    </section>
 
+    <section class="card virtual-tokens-card" data-section="identidades">
       <h3>Tokens virtuales P12/PFX</h3>
-      <p class="quiet">Solo para desarrollo. Al importar o crear, el token queda registrado y sus identidades se actualizan automaticamente.</p>
+      <p class="quiet">Al importar o crear, el token queda registrado y sus identidades se actualizan automaticamente.</p>
       <div class="pkcs12-grid">
         <div>
           <label for="pkcs12-id">ID</label>
@@ -240,7 +281,7 @@
       </div>
 
       <h3>Crear token virtual</h3>
-      <p class="modal-error">Token virtual solo para desarrollo. No usar para producción.</p>
+      <p class="modal-error">Token virtual para pruebas controladas. No usar en equipos compartidos si recuerda la contraseña localmente.</p>
       <div class="pkcs12-grid">
         <div>
           <label for="create-p12-id">ID interno</label>
@@ -282,18 +323,15 @@
             <button class="password-toggle" type="button" data-toggle-password="create-p12-password-confirm" aria-label="Mostrar PIN">👁</button>
           </div>
         </div>
-        <div>
-          <label for="create-p12-output">Ruta de guardado</label>
-          <input id="create-p12-output" type="text" readonly placeholder="Seleccione .p12/.pfx">
-        </div>
       </div>
       <div class="button-row">
-        <button id="choose-p12-output" class="secondary">Guardar como...</button>
         <button id="generate-p12-token" class="secondary">Crear token virtual</button>
       </div>
+      <p class="quiet">Al crear el token se abrirá el diálogo para guardar el archivo .p12/.pfx y luego se registrará automáticamente.</p>
+      <p id="pkcs12-create-message" class="quiet"></p>
       <div id="pkcs12-tokens" class="list empty">Sin tokens virtuales.</div>
       <h3>Seguridad</h3>
-      <p class="quiet">El almacenamiento local de PIN/contraseñas existe solo para comodidad de desarrollo. No se recomienda en equipos compartidos.</p>
+      <p class="quiet">El almacenamiento local de PIN/contraseñas existe solo para comodidad operativa. No se recomienda en equipos compartidos.</p>
     </section>
 
     <section class="card tokens-card" data-section="identidades">
@@ -425,6 +463,7 @@
         <button id="close-sign-modal" class="close-button" aria-label="Cerrar solicitud">Cerrar</button>
       </div>
       <dl class="modal-summary">
+        <div class="wide"><dt>Motivo</dt><dd id="modal-signing-context">La autofirma está desactivada.</dd></div>
         <div><dt>ID de sesion</dt><dd id="modal-session-id">-</dd></div>
         <div><dt>Formato</dt><dd id="modal-format">-</dd></div>
         <div><dt>Idioma</dt><dd id="modal-language">-</dd></div>

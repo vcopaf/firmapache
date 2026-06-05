@@ -392,12 +392,16 @@ pub async fn select_pkcs12_file(app: AppHandle) -> Result<Option<String>, String
 }
 
 #[tauri::command]
-pub async fn select_p12_output_path(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn select_p12_output_path(
+    app: AppHandle,
+    file_name: Option<String>,
+) -> Result<Option<String>, String> {
+    let file_name = suggested_pkcs12_file_name(file_name.as_deref());
     let destination = app
         .dialog()
         .file()
         .add_filter("PKCS#12", &["p12", "pfx"])
-        .set_file_name("dev-token-local.p12")
+        .set_file_name(&file_name)
         .blocking_save_file();
     let Some(destination) = destination else {
         return Ok(None);
@@ -1307,6 +1311,27 @@ fn validate_virtual_token_input(input: &GenerateVirtualTokenP12Input) -> Result<
         return Err("El archivo de salida ya existe. Elija otra ruta.".to_owned());
     }
     Ok(())
+}
+
+fn suggested_pkcs12_file_name(file_name: Option<&str>) -> String {
+    let mut suggested = file_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("token-virtual.p12")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+
+    if !(suggested.ends_with(".p12") || suggested.ends_with(".pfx")) {
+        suggested.push_str(".p12");
+    }
+    suggested
 }
 
 fn server_url(config: &AppConfig) -> String {

@@ -27,6 +27,13 @@ pub struct DiagnosticsReport {
     pub development_pin_env_defined: bool,
     pub development_remember_pin: bool,
     pub development_has_local_pin: bool,
+    pub signing_mode: String,
+    pub signing_auto_sign_will_run: bool,
+    pub signing_active_identity_id: Option<String>,
+    pub signing_active_identity_name: Option<String>,
+    pub signing_active_provider: Option<String>,
+    pub signing_pin_remembered: bool,
+    pub signing_state_issues: Vec<String>,
     pub configured_pkcs11_library_path: Option<String>,
     pub detected_pkcs11_library_path: Option<String>,
     pub driver_found: bool,
@@ -117,6 +124,7 @@ pub fn run_diagnostics(
         .map(|snapshot| snapshot.certificates.clone())
         .unwrap_or_default();
     let identities = build_signing_identities(&tokens, &certificates, config);
+    let signing_state = diagnostic_signing_state(config, &identities);
     let expired_certificate_count = identities
         .iter()
         .filter(|identity| identity.is_expired)
@@ -150,6 +158,13 @@ pub fn run_diagnostics(
             .local_pin
             .as_deref()
             .is_some_and(|pin| !pin.is_empty()),
+        signing_mode: signing_state.mode_label,
+        signing_auto_sign_will_run: signing_state.auto_sign_will_run,
+        signing_active_identity_id: signing_state.active_identity_id,
+        signing_active_identity_name: signing_state.active_identity_name,
+        signing_active_provider: signing_state.active_provider,
+        signing_pin_remembered: signing_state.pin_remembered,
+        signing_state_issues: signing_state.issues,
         configured_pkcs11_library_path: config.pkcs11.library_path.clone(),
         detected_pkcs11_library_path: library.path,
         driver_found: library.found,
@@ -247,6 +262,90 @@ pub fn run_diagnostics(
             .collect(),
         last_error,
     }
+}
+
+struct DiagnosticSigningState {
+    mode_label: String,
+    auto_sign_will_run: bool,
+    active_identity_id: Option<String>,
+    active_identity_name: Option<String>,
+    active_provider: Option<String>,
+    pin_remembered: bool,
+    issues: Vec<String>,
+}
+
+fn diagnostic_signing_state(
+    config: &AppConfig,
+    identities: &[SigningIdentity],
+) -> DiagnosticSigningState {
+    let dev_enabled = config.development.enabled;
+    let auto_sign = config.development.auto_sign;
+    let active_identity = (!config.development.default_identity_id.trim().is_empty())
+        .then(|| {
+            identities
+                .iter()
+                .find(|identity| identity.identity_id == config.development.default_identity_id)
+        })
+        .flatten();
+    let pin_remembered = config
+        .development
+        .local_pin
+        .as_deref()
+        .is_some_and(|pin| !pin.is_empty());
+    let pin_available = pin_remembered || env::var(&config.development.pin_env).is_ok();
+    let mut issues = Vec::new();
+
+    if dev_enabled && auto_sign {
+        if config.development.default_identity_id.trim().is_empty() {
+            issues.push("identidad no configurada".to_owned());
+        } else if let Some(identity) = active_identity {
+            if !identity.is_available {
+                issues.push("identidad no disponible".to_owned());
+            }
+            if identity.is_expired {
+                issues.push("certificado expirado".to_owned());
+            }
+        } else {
+            issues.push("identidad inexistente".to_owned());
+        }
+        if !pin_available {
+            issues.push("PIN no disponible".to_owned());
+        }
+    }
+
+    let mode_label = if dev_enabled && auto_sign && issues.is_empty() {
+        "Autofirma".to_owned()
+    } else if dev_enabled && auto_sign && !issues.is_empty() {
+        "Confirmación manual (autofirma incompleta)".to_owned()
+    } else {
+        "Confirmación manual".to_owned()
+    };
+
+    DiagnosticSigningState {
+        mode_label,
+        auto_sign_will_run: dev_enabled && auto_sign && issues.is_empty(),
+        active_identity_id: active_identity.map(|identity| identity.identity_id.clone()),
+        active_identity_name: active_identity.map(identity_display_name),
+        active_provider: active_identity.map(|identity| {
+            if identity.provider == "pkcs12" {
+                "PKCS#12".to_owned()
+            } else {
+                "PKCS#11".to_owned()
+            }
+        }),
+        pin_remembered,
+        issues,
+    }
+}
+
+fn identity_display_name(identity: &SigningIdentity) -> String {
+    let title = identity
+        .subject
+        .as_deref()
+        .or(identity.certificate_label.as_deref())
+        .or(identity.certificate_id.as_deref())
+        .unwrap_or(&identity.identity_id);
+    title.to_owned()
 }
 
 fn server_url(config: &AppConfig) -> String {

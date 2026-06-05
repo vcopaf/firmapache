@@ -10,6 +10,7 @@
   --primary-hover: #1f2830;
   --success: #2f8f62;
   --warning: #b7791f;
+  --info: #2f6f9f;
   --danger: #b0413e;
   color: var(--text-primary);
   background: var(--bg-primary);
@@ -161,6 +162,12 @@ body.sidebar-collapsed .sidebar-toggle {
   z-index: 5;
 }
 
+.header-actions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
 h1 {
   font-size: 30px;
   margin: 4px 0 0;
@@ -275,6 +282,38 @@ h3 {
   margin-top: 14px;
 }
 
+.signing-summary-card {
+  border-left: 5px solid var(--info);
+}
+
+.signing-summary-card.dev,
+.signing-summary-card.autosign {
+  border-left-color: var(--success);
+}
+
+.signing-summary-card.dev-warning,
+.signing-summary-card.autosign-warning {
+  border-left-color: var(--warning);
+}
+
+.signing-summary-card.prod,
+.signing-summary-card.manual {
+  border-left-color: var(--info);
+}
+
+.signing-summary {
+  margin-top: 6px;
+}
+
+.signing-behavior {
+  background: var(--surface-hover);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-weight: 650;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+}
+
 .quick-actions {
   display: flex;
   flex-wrap: wrap;
@@ -333,6 +372,34 @@ h3 {
   color: var(--text-secondary);
 }
 
+.mode-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.mode-badge.prod,
+.mode-badge.manual {
+  background: #dcecf7;
+  color: #1f5f89;
+}
+
+.mode-badge.dev,
+.mode-badge.autosign {
+  background: #dff3e8;
+  color: #256b49;
+}
+
+.mode-badge.dev-warning,
+.mode-badge.autosign-warning {
+  background: #fff0d8;
+  color: #8a5a12;
+}
+
 .summary {
   display: grid;
   gap: 14px;
@@ -387,10 +454,87 @@ label {
   margin-bottom: 14px;
 }
 
+.behavior-options {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.behavior-option {
+  align-items: flex-start;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+}
+
+.behavior-option.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+
+.behavior-option input {
+  flex: 0;
+  margin-top: 3px;
+  width: auto;
+}
+
+.behavior-option small {
+  color: var(--text-secondary);
+  display: block;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.autosign-config-panel {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 14px;
+}
+
 .pkcs12-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.state-panel {
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--info);
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 16px;
+}
+
+.state-panel.dev,
+.state-panel.autosign {
+  border-left-color: var(--success);
+}
+
+.state-panel.dev-warning,
+.state-panel.autosign-warning {
+  border-left-color: var(--warning);
+}
+
+.state-panel.prod,
+.state-panel.manual {
+  border-left-color: var(--info);
+}
+
+.state-panel strong {
+  display: block;
+  font-size: 19px;
+  margin-top: 4px;
+}
+
+.state-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .toggle-row {
@@ -564,6 +708,11 @@ button:disabled {
   display: grid;
   gap: 11px;
   padding: 14px;
+}
+
+.identity-card.active-identity {
+  border-color: rgba(47, 143, 98, .55);
+  box-shadow: 0 0 0 3px rgba(47, 143, 98, .12);
 }
 
 .identity-card.muted {

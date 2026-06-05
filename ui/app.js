@@ -20,13 +20,13 @@ let latestDiagnostics = null;
 let serviceStatus = null;
 let sessionsSnapshot = [];
 let activeSection = "inicio";
+let developmentLastTest = "Sin ejecutar";
 const windowMode = currentWindow.label === "signing" ? "signing" : "main";
 const sectionTitles = {
   inicio: "Inicio",
   firmar: "Firma manual",
   solicitudes: "Solicitudes",
   identidades: "Identidades",
-  desarrollo: "Desarrollo",
   validacion: "Validacion",
   configuracion: "Configuracion",
   diagnostico: "Diagnostico",
@@ -140,6 +140,180 @@ function currentDefaultIdentity() {
     || null;
 }
 
+function activeDevelopmentIdentity() {
+  const identityId = developmentConfig?.default_identity_id;
+  if (!identityId) {
+    return null;
+  }
+  return signingIdentities.find((identity) => identity.identity_id === identityId) || null;
+}
+
+function currentSigningState() {
+  const devEnabled = Boolean(developmentConfig?.enabled);
+  const autoSign = Boolean(developmentConfig?.auto_sign);
+  const autoSignRequested = devEnabled && autoSign;
+  const identity = activeDevelopmentIdentity();
+  const hasLocalPin = Boolean(developmentConfig?.has_local_pin);
+  const pinAvailable = Boolean(hasLocalPin || developmentConfig?.pin_env_defined);
+  const issues = [];
+
+  if (autoSignRequested) {
+    if (!developmentConfig?.default_identity_id) {
+      issues.push("identidad no configurada");
+    } else if (!identity) {
+      issues.push("identidad inexistente");
+    } else {
+      if (!identity.is_available) {
+        issues.push("identidad no disponible");
+      }
+      if (identity.is_expired) {
+        issues.push("certificado expirado");
+      }
+    }
+    if (!pinAvailable) {
+      issues.push("PIN no disponible");
+    }
+  }
+
+  const warning = autoSignRequested && issues.length > 0;
+  const willAutoSign = autoSignRequested && !warning;
+  const mode = willAutoSign ? "autosign" : warning ? "autosign-warning" : "manual";
+  const visibleIdentity = identity || currentDefaultIdentity();
+  const behaviorLabel = willAutoSign ? "Autofirma" : "Confirmación manual";
+  const badgeText = willAutoSign
+    ? "🟢 Autofirma activa"
+    : warning
+      ? "🟠 Autofirma incompleta"
+      : "🔵 Confirmación manual";
+  const tooltip = willAutoSign
+    ? "Las solicitudes pueden firmarse automáticamente."
+    : warning
+      ? `Configuración incompleta: ${issues.join(", ")}. Se usará confirmación manual.`
+      : "Todas las firmas requieren aprobación manual.";
+  const modalReason = (() => {
+    if (!autoSignRequested) {
+      return "La autofirma está desactivada.";
+    }
+    if (!pinAvailable) {
+      return "No existe PIN almacenado.";
+    }
+    if (!developmentConfig?.default_identity_id) {
+      return "No hay identidad configurada para autofirma.";
+    }
+    if (!identity || !identity.is_available) {
+      return "La identidad configurada no está disponible.";
+    }
+    if (identity.is_expired) {
+      return "El certificado configurado para autofirma está expirado.";
+    }
+    return "Se requiere aprobación manual para esta solicitud.";
+  })();
+
+  return {
+    mode,
+    modeLabel: behaviorLabel,
+    behaviorLabel,
+    badgeText,
+    tooltip,
+    devEnabled,
+    autoSign,
+    autoSignRequested,
+    willAutoSign,
+    warning,
+    issues,
+    identity,
+    visibleIdentity,
+    provider: visibleIdentity?.provider === "pkcs12" ? "PKCS#12" : visibleIdentity ? "PKCS#11" : "-",
+    identityName: visibleIdentity ? identityShortTitle(visibleIdentity) : "Sin identidad configurada",
+    tokenName: visibleIdentity ? tokenGroupLabel(visibleIdentity) : "-",
+    pinStatus: hasLocalPin ? "Recordado localmente" : developmentConfig?.pin_env_defined ? "Variable compatible" : "No recordado",
+    behavior: willAutoSign
+      ? "Las solicitudes POST /sign serán firmadas automáticamente."
+      : "Las solicitudes POST /sign requerirán aprobación manual.",
+    modalReason,
+  };
+}
+
+function renderSigningState() {
+  const state = currentSigningState();
+  renderGlobalModeBadge(state);
+  renderDashboardSigningSummary(state);
+  renderDevelopmentStatePanel(state);
+  renderSigningWindowContext(state);
+  updateDashboard();
+}
+
+function renderGlobalModeBadge(state) {
+  const badge = document.getElementById("global-mode-badge");
+  if (badge) {
+    badge.textContent = state.badgeText;
+    badge.className = `mode-badge ${state.mode}`;
+    badge.title = state.tooltip;
+  }
+  const sidebarMode = document.getElementById("sidebar-signing-mode");
+  if (sidebarMode) {
+    sidebarMode.textContent = state.willAutoSign ? "Autofirma activa" : "Confirmación manual";
+    sidebarMode.title = state.tooltip;
+  }
+}
+
+function renderDashboardSigningSummary(state) {
+  const card = document.getElementById("signing-summary-card");
+  if (!card) {
+    return;
+  }
+  card.classList.toggle("hidden", !state.willAutoSign);
+  card.className = `card signing-summary-card ${state.mode}`;
+  card.classList.toggle("hidden", !state.willAutoSign);
+  const badge = document.getElementById("signing-summary-badge");
+  badge.textContent = state.badgeText;
+  badge.className = `mode-badge ${state.mode}`;
+  badge.title = state.tooltip;
+  document.getElementById("signing-summary-mode").textContent = state.modeLabel;
+  document.getElementById("signing-summary-autosign").textContent = state.willAutoSign
+    ? "Activa"
+    : state.warning
+      ? "Incompleta"
+      : "Desactivada";
+  document.getElementById("signing-summary-provider").textContent = state.provider;
+  document.getElementById("signing-summary-pin").textContent = state.pinStatus;
+  document.getElementById("signing-summary-identity").textContent = state.identityName;
+  document.getElementById("signing-summary-token").textContent = state.tokenName;
+  document.getElementById("signing-summary-behavior").textContent = state.warning
+    ? `${state.behavior} Configuración incompleta: ${state.issues.join(", ")}.`
+    : state.behavior;
+}
+
+function renderDevelopmentStatePanel(state) {
+  const panel = document.getElementById("development-state-panel");
+  if (!panel) {
+    return;
+  }
+  panel.className = `state-panel ${state.mode}`;
+  document.getElementById("development-state-title").textContent = state.warning ? "Autofirma incompleta" : state.modeLabel;
+  document.getElementById("development-state-mode").textContent = state.modeLabel;
+  document.getElementById("development-state-autosign").textContent = state.willAutoSign
+    ? "Activa"
+    : state.warning
+      ? "Incompleta"
+      : "Desactivada";
+  document.getElementById("development-state-provider").textContent = state.provider;
+  document.getElementById("development-state-pin").textContent = state.pinStatus;
+  document.getElementById("development-state-last-test").textContent = developmentLastTest;
+  document.getElementById("development-state-identity").textContent = state.identityName;
+  document.getElementById("development-state-behavior").textContent = state.warning
+    ? `Configuración incompleta: ${state.issues.join(", ")}. Se abrirá aprobación manual.`
+    : state.behavior;
+}
+
+function renderSigningWindowContext(state = currentSigningState()) {
+  const context = document.getElementById("modal-signing-context");
+  if (!context) {
+    return;
+  }
+  context.textContent = state.modalReason;
+}
+
 function updateDashboard() {
   if (windowMode !== "main") {
     return;
@@ -149,10 +323,11 @@ function updateDashboard() {
     return;
   }
   const server = config?.server || null;
+  const signingState = currentSigningState();
   const fallbackUrl = serviceStatus?.url
     || (serviceStatus ? `${serviceStatus.https ? "https" : "http"}://localhost:${serviceStatus.port}/` : "-");
   const pendingCount = sessionsSnapshot.filter((session) => session.status === "pending").length;
-  const defaultIdentity = currentDefaultIdentity();
+  const defaultIdentity = signingState.visibleIdentity;
   badge.textContent = serviceStatus?.active ? "Activo" : "Consultando";
   badge.className = `badge ${serviceStatus?.active ? "active" : "pending"}`;
   document.getElementById("dashboard-url").textContent = server ? serverUrl(server) : fallbackUrl;
@@ -163,8 +338,9 @@ function updateDashboard() {
   document.getElementById("dashboard-cert-count").textContent =
     String(signingIdentities.length || certificates.length || tokenCertificateCache?.certificate_count || 0);
   document.getElementById("dashboard-pending").textContent = String(pendingCount);
-  document.getElementById("dashboard-dev-mode").textContent =
-    developmentConfig?.enabled ? "Activado" : "Desactivado";
+  document.getElementById("dashboard-dev-mode").textContent = signingState.warning
+    ? "Autofirma incompleta"
+    : signingState.modeLabel;
   document.getElementById("dashboard-default-identity").textContent =
     defaultIdentity ? `${identityShortTitle(defaultIdentity)} - ${tokenGroupLabel(defaultIdentity)}` : "Sin identidad disponible";
 }
@@ -195,7 +371,7 @@ async function loadConfig() {
   renderDevelopmentConfig(developmentConfig);
   renderPkcs12Tokens();
   document.getElementById("library-path").value = config.pkcs11.library_path || "";
-  updateDashboard();
+  renderSigningState();
 }
 
 function renderServerConfig(server) {
@@ -295,12 +471,12 @@ function updateServerWarning() {
 }
 
 function renderDevelopmentConfig(development) {
-  if (!document.getElementById("development-enabled")) {
+  if (!document.getElementById("signing-behavior-manual")) {
     return;
   }
-  document.getElementById("development-enabled").checked = Boolean(development.enabled);
-  document.getElementById("development-auto-sign").checked = Boolean(development.auto_sign);
-  document.getElementById("development-fallback").checked = Boolean(development.fallback_to_modal);
+  const autoSignSelected = Boolean(development.enabled && development.auto_sign);
+  document.getElementById("signing-behavior-manual").checked = !autoSignSelected;
+  document.getElementById("signing-behavior-autosign").checked = autoSignSelected;
   document.getElementById("development-remember-pin").checked = Boolean(development.remember_pin);
   document.getElementById("development-pin").value = "";
   document.getElementById("development-pin-status").textContent = development.has_local_pin
@@ -309,8 +485,9 @@ function renderDevelopmentConfig(development) {
       ? "Variable de entorno compatible encontrada"
       : "Ingrese PIN/contraseña para guardar o probar";
   document.getElementById("development-pin-warning").classList.toggle("hidden", !development.remember_pin);
+  updateSigningBehaviorConfigVisibility();
   populateDevelopmentIdentities();
-  updateDashboard();
+  renderSigningState();
 }
 
 async function saveDevelopmentConfig() {
@@ -318,7 +495,8 @@ async function saveDevelopmentConfig() {
   developmentConfig = await invoke("update_development_config", payload);
   renderDevelopmentConfig(developmentConfig);
   document.getElementById("development-pin").value = "";
-  document.getElementById("development-message").textContent = "Modo desarrollo guardado";
+  document.getElementById("development-message").textContent = "Comportamiento de firma guardado";
+  renderSigningState();
   window.setTimeout(() => { document.getElementById("development-message").textContent = ""; }, 2500);
 }
 
@@ -329,9 +507,11 @@ async function testDevelopmentConfig() {
   document.getElementById("development-message").textContent = result.ready
     ? "✓ Autofirma configurada correctamente"
     : result.messages.join(" | ");
+  developmentLastTest = result.ready ? "Correcta" : "Con errores";
   developmentConfig = await invoke("get_development_config");
   renderDevelopmentConfig(developmentConfig);
   document.getElementById("development-pin").value = "";
+  renderSigningState();
 }
 
 async function selectPkcs12File() {
@@ -359,49 +539,93 @@ async function addPkcs12Token() {
   await maybeSetImportedTokenAsDefault(id);
 }
 
-async function selectP12OutputPath() {
-  const selected = await invoke("select_p12_output_path");
-  if (selected) {
-    document.getElementById("create-p12-output").value = selected;
-  }
-}
-
 async function generateP12Token() {
+  const id = document.getElementById("create-p12-id").value.trim();
+  const label = document.getElementById("create-p12-label").value.trim();
+  const commonName = document.getElementById("create-p12-cn").value.trim();
+  const organization = document.getElementById("create-p12-o").value.trim();
+  const country = document.getElementById("create-p12-c").value.trim().toUpperCase();
+  const validityDays = Number(document.getElementById("create-p12-days").value);
   const password = document.getElementById("create-p12-password").value;
   const confirm = document.getElementById("create-p12-password-confirm").value;
+  const message = document.getElementById("pkcs12-create-message");
+  if (message) {
+    message.textContent = "";
+  }
+  if (!id || !label || !commonName || !organization || !country) {
+    showError("Complete los datos del token virtual.");
+    return;
+  }
+  if (!Number.isInteger(validityDays) || validityDays < 1) {
+    showError("La vigencia debe ser un número de días mayor a 0.");
+    return;
+  }
+  if (country.length !== 2) {
+    showError("País / C debe tener 2 letras, por ejemplo BO.");
+    return;
+  }
+  if (!password) {
+    showError("Ingrese una contraseña para proteger el P12/PFX.");
+    return;
+  }
   if (password !== confirm) {
     showError("La contraseña y la confirmación no coinciden");
     return;
   }
+  if (message) {
+    message.textContent = "Seleccione dónde guardar el archivo .p12/.pfx...";
+  }
+  const outputPath = await invoke("select_p12_output_path", { fileName: `${id}.p12` });
+  if (!outputPath) {
+    if (message) {
+      message.textContent = "Creación cancelada.";
+    }
+    return;
+  }
   try {
+    document.getElementById("generate-p12-token").disabled = true;
+    if (message) {
+      message.textContent = "Creando token virtual...";
+    }
     const response = await invoke("generate_virtual_token_p12", {
       input: {
-        id: document.getElementById("create-p12-id").value,
-        label: document.getElementById("create-p12-label").value,
-        commonName: document.getElementById("create-p12-cn").value,
-        organization: document.getElementById("create-p12-o").value,
-        country: document.getElementById("create-p12-c").value,
-        validityDays: Number(document.getElementById("create-p12-days").value),
+        id,
+        label,
+        common_name: commonName,
+        organization,
+        country,
+        validity_days: validityDays,
         password,
-        outputPath: document.getElementById("create-p12-output").value,
+        output_path: outputPath,
       },
     });
     pkcs12Tokens = await invoke("list_pkcs12_tokens");
     renderPkcs12Tokens();
     await refreshSigningIdentities();
-    document.getElementById("development-message").textContent =
-      "✓ Token virtual creado ✓ Registrado automáticamente ✓ Identidad disponible para firma";
+    if (message) {
+      message.textContent = `✓ Token virtual creado y registrado: ${response.path || outputPath}`;
+    }
     await maybeSetIdentityAsDefault(response.identity_id);
   } finally {
+    document.getElementById("generate-p12-token").disabled = false;
     document.getElementById("create-p12-password").value = "";
     document.getElementById("create-p12-password-confirm").value = "";
   }
 }
 
 async function removePkcs12Token(id) {
+  const shouldRemove = window.confirm("¿Quitar este token virtual de FirMapache? El archivo .p12/.pfx no se eliminará del disco.");
+  if (!shouldRemove) {
+    return;
+  }
   pkcs12Tokens = await invoke("remove_pkcs12_token", { id });
   renderPkcs12Tokens();
+  developmentConfig = await invoke("get_development_config");
   await refreshSigningIdentities();
+  populateDevelopmentIdentities();
+  renderSigningState();
+  document.getElementById("pkcs12-create-message").textContent =
+    "Token virtual quitado. Sus identidades se actualizaron.";
 }
 
 async function testPkcs12Token(id) {
@@ -411,15 +635,30 @@ async function testPkcs12Token(id) {
 }
 
 function readDevelopmentConfigInput() {
+  const autoSignSelected = document.getElementById("signing-behavior-autosign")?.checked || false;
   return {
-    enabled: document.getElementById("development-enabled").checked,
-    autoSign: document.getElementById("development-auto-sign").checked,
+    enabled: autoSignSelected,
+    autoSign: autoSignSelected,
     defaultIdentityId: document.getElementById("development-identity").value,
     pinEnv: developmentConfig?.pin_env || "FIRMAPACHE_DEV_PIN",
     rememberPin: document.getElementById("development-remember-pin").checked,
     pin: document.getElementById("development-pin").value || null,
-    fallbackToModal: document.getElementById("development-fallback").checked,
+    fallbackToModal: true,
   };
+}
+
+function updateSigningBehaviorConfigVisibility() {
+  const panel = document.getElementById("autosign-config-panel");
+  if (!panel) {
+    return;
+  }
+  const autoSignSelected = document.getElementById("signing-behavior-autosign")?.checked || false;
+  panel.classList.toggle("hidden", !autoSignSelected);
+  document.getElementById("save-signing-behavior")?.classList.toggle("hidden", autoSignSelected);
+  document.querySelectorAll(".behavior-option").forEach((option) => {
+    const input = option.querySelector("input");
+    option.classList.toggle("selected", Boolean(input?.checked));
+  });
 }
 
 function renderPkcs12Tokens() {
@@ -495,14 +734,14 @@ async function loadSigningIdentities() {
   signingIdentities = await invoke("list_signing_identities");
   renderCertificates();
   populateSigningIdentities();
-  updateDashboard();
+  renderSigningState();
 }
 
 async function refreshSigningIdentities() {
   signingIdentities = await invoke("refresh_signing_identities");
   renderCertificates();
   populateSigningIdentities();
-  updateDashboard();
+  renderSigningState();
 }
 
 function applyTokenCertificateCache(cache) {
@@ -579,8 +818,14 @@ function renderIdentityCards(container, identities) {
 function identityCard(identity) {
   const article = document.createElement("article");
   article.className = "identity-card";
+  const signingState = currentSigningState();
+  const usedByAutoSign = signingState.identity?.identity_id === identity.identity_id;
+  const activeDefault = identity.is_default || usedByAutoSign;
   if (!identity.is_available || identity.is_expired) {
     article.classList.add("muted");
+  }
+  if (activeDefault) {
+    article.classList.add("active-identity");
   }
 
   const header = document.createElement("div");
@@ -591,8 +836,10 @@ function identityCard(identity) {
 
   const badges = document.createElement("div");
   badges.className = "identity-badges";
-  if (identity.is_default) {
-    badges.appendChild(identityBadge("Predeterminada", "active"));
+  if (usedByAutoSign) {
+    badges.appendChild(identityBadge("✓ Utilizada por autofirma", "active"));
+  } else if (identity.is_default) {
+    badges.appendChild(identityBadge("✓ Identidad activa", "active"));
   }
   if (identity.provider === "pkcs12") {
     badges.appendChild(identityBadge("PKCS#12", "dev"));
@@ -759,7 +1006,7 @@ function identityShortTitle(identity) {
 
 function tokenGroupLabel(identity) {
   if (identity.provider === "pkcs12") {
-    return `[PKCS#12 DEV] ${identity.token_label || identity.virtual_token_id || "Token virtual"}`;
+    return `[PKCS#12] ${identity.token_label || identity.virtual_token_id || "Token virtual"}`;
   }
   const label = identity.token_label || "Token";
   const serial = identity.token_serial ? ` - serial ${identity.token_serial}` : "";
@@ -817,6 +1064,7 @@ function clearSigningForm() {
   activeSigningSession = null;
   clearPin();
   clearSigningError();
+  renderSigningWindowContext();
   document.getElementById("modal-files").replaceChildren();
   document.getElementById("modal-session-id").textContent = "-";
   document.getElementById("modal-format").textContent = "-";
@@ -828,6 +1076,7 @@ function clearSigningForm() {
 
 async function showSigningSession(session) {
   activeSigningSession = session;
+  renderSigningWindowContext();
   document.getElementById("modal-session-id").textContent = session.id;
   document.getElementById("modal-format").textContent = humanSignFormat(session.format);
   document.getElementById("modal-language").textContent = session.language || "-";
@@ -1495,10 +1744,16 @@ function renderDiagnostics(report) {
       report.last_restart_error ? `Ultimo error de reinicio: ${report.last_restart_error}` : "",
       report.last_error ? `Ultimo error: ${report.last_error}` : "",
     ]),
-    item("Modo desarrollo", [
-      `Activado: ${yesNo(report.development_enabled)}`,
+    item("Comportamiento de firma", [
+      `Comportamiento: ${report.signing_mode || "-"}`,
+      `Autofirma efectiva: ${yesNo(report.signing_auto_sign_will_run)}`,
+      `Identidad activa: ${report.signing_active_identity_name || report.signing_active_identity_id || "-"}`,
+      `Proveedor activo: ${report.signing_active_provider || "-"}`,
+      `PIN recordado: ${yesNo(report.signing_pin_remembered)}`,
+      (report.signing_state_issues || []).length ? `Advertencias: ${report.signing_state_issues.join(", ")}` : "",
+      `Autofirma configurada: ${yesNo(report.development_enabled && report.development_auto_sign)}`,
       `Autofirma: ${yesNo(report.development_auto_sign)}`,
-      `Identidad dev: ${report.development_default_identity_id || "-"}`,
+      `Identidad configurada: ${report.development_default_identity_id || "-"}`,
       `PIN local recordado: ${yesNo(report.development_has_local_pin)}`,
       report.development_pin_env ? `Variable compatible: ${report.development_pin_env}` : "",
       report.development_pin_env ? `Variable definida: ${yesNo(report.development_pin_env_defined)}` : "",
@@ -1620,11 +1875,19 @@ function bindEvents() {
     });
     document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("save-signing-behavior").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("save-development-config").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
+    document.getElementById("signing-behavior-manual").addEventListener("change", () => {
+      updateSigningBehaviorConfigVisibility();
+      document.getElementById("development-message").textContent = "Guarde el comportamiento para aplicar el cambio.";
+    });
+    document.getElementById("signing-behavior-autosign").addEventListener("change", () => {
+      updateSigningBehaviorConfigVisibility();
+      document.getElementById("development-message").textContent = "Guarde el comportamiento para aplicar el cambio.";
+    });
     document.getElementById("choose-pkcs12-file").addEventListener("click", () => run(selectPkcs12File));
     document.getElementById("add-pkcs12-token").addEventListener("click", () => run(addPkcs12Token));
-    document.getElementById("choose-p12-output").addEventListener("click", () => run(selectP12OutputPath));
     document.getElementById("generate-p12-token").addEventListener("click", () => run(generateP12Token));
     document.getElementById("development-identity").addEventListener("change", () => {
       document.getElementById("development-message").textContent = "";
@@ -1700,6 +1963,7 @@ async function bootstrap() {
     }, 10000);
   } else {
     clearSigningForm();
+    await loadConfig();
     await loadTokenCertificateCache();
     await loadSessions();
   }
