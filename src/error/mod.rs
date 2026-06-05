@@ -51,7 +51,7 @@ impl IntoResponse for AppError {
             ),
             Self::Pkcs11(ProviderError::InvalidEnvironmentPath(path)) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("MINI_FIRMADOR_PKCS11 path does not exist: {path}"),
+                format!("FIRMAPACHE_PKCS11 path does not exist: {path}"),
             ),
             Self::Pkcs11(ProviderError::LoginFailed) => (
                 StatusCode::UNAUTHORIZED,

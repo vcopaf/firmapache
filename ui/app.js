@@ -111,6 +111,13 @@ function serverUrl(server) {
   return `${scheme}://${host}:${server.port}/`;
 }
 
+async function loadBrandLogo() {
+  const logo = await invoke("get_brand_logo_data_url");
+  document.querySelectorAll(".brand-logo, .dashboard-logo, .signing-logo").forEach((image) => {
+    image.src = logo;
+  });
+}
+
 function showSection(section) {
   if (!sectionTitles[section]) {
     return;
@@ -175,7 +182,7 @@ async function loadStatus() {
   const indicator = document.getElementById("service-indicator");
   indicator.textContent = status.active ? "Activo" : "No disponible";
   indicator.className = `badge ${status.active ? "active" : "pending"}`;
-  setAppStatus("Servicio local operativo", "active");
+  setAppStatus("FirMapache operativo", "active");
   updateDashboard();
 }
 
@@ -294,7 +301,7 @@ function renderDevelopmentConfig(development) {
   document.getElementById("development-enabled").checked = Boolean(development.enabled);
   document.getElementById("development-auto-sign").checked = Boolean(development.auto_sign);
   document.getElementById("development-fallback").checked = Boolean(development.fallback_to_modal);
-  document.getElementById("development-pin-env").value = development.pin_env || "MINI_FIRMADOR_DEV_PIN";
+  document.getElementById("development-pin-env").value = development.pin_env || "FIRMAPACHE_DEV_PIN";
   document.getElementById("development-pin-status").textContent = development.pin_env_defined
     ? "Variable encontrada"
     : "Variable no encontrada";
@@ -393,7 +400,7 @@ function readDevelopmentConfigInput() {
     enabled: document.getElementById("development-enabled").checked,
     autoSign: document.getElementById("development-auto-sign").checked,
     defaultIdentityId: document.getElementById("development-identity").value,
-    pinEnv: document.getElementById("development-pin-env").value.trim() || "MINI_FIRMADOR_DEV_PIN",
+    pinEnv: document.getElementById("development-pin-env").value.trim() || "FIRMAPACHE_DEV_PIN",
     fallbackToModal: document.getElementById("development-fallback").checked,
   };
 }
@@ -571,6 +578,8 @@ function identityCard(identity) {
   }
   if (identity.provider === "pkcs12") {
     badges.appendChild(identityBadge("PKCS#12", "dev"));
+  } else {
+    badges.appendChild(identityBadge("PKCS#11", ""));
   }
   if (!identity.is_available) {
     badges.appendChild(identityBadge("No disponible", "warning"));
@@ -578,6 +587,8 @@ function identityCard(identity) {
     badges.appendChild(identityBadge("Expirada", "warning"));
   } else if (identity.expires_soon) {
     badges.appendChild(identityBadge("Vence pronto", "warning"));
+  } else {
+    badges.appendChild(identityBadge("Activo", "active"));
   }
   header.appendChild(badges);
   article.appendChild(header);
@@ -602,8 +613,11 @@ function identityCard(identity) {
   details.appendChild(summary);
   [
     `Subject: ${identity.subject || "-"}`,
+    `Issuer: ${identity.issuer || "-"}`,
     `ID identidad: ${identity.identity_id || "-"}`,
     `ID certificado: ${identity.certificate_id || "-"}`,
+    `Serial: ${identity.token_serial || "-"}`,
+    `Slot: ${Number.isFinite(identity.slot_id) ? identity.slot_id : "-"}`,
     `Token: ${tokenGroupLabel(identity)}`,
   ].forEach((text) => {
     const line = document.createElement("span");
@@ -850,6 +864,10 @@ function sessionItem(session) {
       `Estado: ${session.status}`,
     ],
   );
+  const status = document.createElement("span");
+  status.className = `identity-badge ${session.status === "pending" ? "warning" : session.status === "approved" ? "active" : ""}`;
+  status.textContent = session.status;
+  article.appendChild(status);
   const actions = document.createElement("div");
   actions.className = "item-actions";
   actions.append(
@@ -1477,6 +1495,9 @@ function bindEvents() {
     document.querySelectorAll("[data-section-target]").forEach((navButton) => {
       navButton.addEventListener("click", () => showSection(navButton.dataset.sectionTarget));
     });
+    document.getElementById("sidebar-toggle").addEventListener("click", () => {
+      document.body.classList.toggle("sidebar-collapsed");
+    });
     document.getElementById("quick-sign-file").addEventListener("click", () => showSection("firmar"));
     document.getElementById("quick-open-sessions").addEventListener("click", () => showSection("solicitudes"));
     document.getElementById("quick-refresh-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));
@@ -1571,6 +1592,7 @@ function bindEvents() {
 
 async function bootstrap() {
   configureWindowMode();
+  await loadBrandLogo();
   bindEvents();
   if (windowMode === "main") {
     await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);

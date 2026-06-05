@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MiniFirmador",
+  "productName": "FirMapache",
   "version": "0.1.0",
-  "identifier": "bo.gob.agetic.minifirmador",
+  "identifier": "bo.gob.agetic.firmapache",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "MiniFirmador",
+        "title": "FirMapache",
         "width": 1024,
         "height": 760,
         "minWidth": 780,

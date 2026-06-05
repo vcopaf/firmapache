@@ -20,7 +20,8 @@ use crate::{
     },
 };
 
-const PKCS11_LIBRARY_ENV: &str = "MINI_FIRMADOR_PKCS11";
+const PKCS11_LIBRARY_ENV: &str = "FIRMAPACHE_PKCS11";
+const LEGACY_PKCS11_LIBRARY_ENV: &str = "MINI_FIRMADOR_PKCS11";
 const SHA256_DIGEST_INFO_PREFIX: [u8; 19] = [
     0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
     0x00, 0x04, 0x20,
@@ -41,7 +42,7 @@ static PKCS11_ACCESS: Mutex<()> = Mutex::new(());
 pub enum ProviderError {
     #[error("PKCS#11 library not found")]
     LibraryNotFound,
-    #[error("MINI_FIRMADOR_PKCS11 points to a file that does not exist: {0}")]
+    #[error("FIRMAPACHE_PKCS11 points to a file that does not exist: {0}")]
     InvalidEnvironmentPath(String),
     #[error("could not load PKCS#11 library at {path}: {source}")]
     LibraryLoad {
@@ -105,12 +106,17 @@ pub enum ProviderError {
 
 pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, ProviderError> {
     let started = Instant::now();
-    if let Some(configured_path) = env::var_os(PKCS11_LIBRARY_ENV) {
+    let env_path = env::var_os(PKCS11_LIBRARY_ENV)
+        .map(|path| (PKCS11_LIBRARY_ENV, path))
+        .or_else(|| {
+            env::var_os(LEGACY_PKCS11_LIBRARY_ENV).map(|path| (LEGACY_PKCS11_LIBRARY_ENV, path))
+        });
+    if let Some((env_name, configured_path)) = env_path {
         let path = configured_path.to_string_lossy().into_owned();
         if !Path::new(&path).is_file() {
             warn!(
                 path,
-                source = "env",
+                source = env_name,
                 signing_step = "detect_pkcs11_library",
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "configured PKCS#11 library does not exist"
@@ -120,7 +126,7 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
 
         info!(
             path,
-            source = "env",
+            source = env_name,
             signing_step = "detect_pkcs11_library",
             elapsed_ms = started.elapsed().as_millis() as u64,
             "PKCS#11 library selected"
@@ -128,7 +134,7 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
         return Ok(Pkcs11LibraryInfo {
             found: true,
             path: Some(path),
-            source: Some("env".to_owned()),
+            source: Some(env_name.to_owned()),
         });
     }
 

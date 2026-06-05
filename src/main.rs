@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use mini_firmador::{
+use firmapache::{
     config::AppConfig,
     init_tracing,
     server::{self, AppState},

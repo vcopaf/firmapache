@@ -3,28 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MiniFirmador</title>
+  <title>FirMapache</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div id="app-shell" class="app-shell">
     <aside id="sidebar" class="sidebar" aria-label="Navegacion principal">
       <div class="sidebar-brand">
-        <span class="brand-mark">MF</span>
+        <img class="brand-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true">
         <div>
-          <strong>MiniFirmador</strong>
-          <span>Escritorio local</span>
+          <strong>FirMapache</strong>
+          <span>Firma digital local</span>
         </div>
       </div>
+      <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Colapsar menu">☰</button>
       <nav class="sidebar-nav">
-        <button class="nav-button active" type="button" data-section-target="inicio">Inicio</button>
-        <button class="nav-button" type="button" data-section-target="firmar">Firmar</button>
-        <button class="nav-button" type="button" data-section-target="solicitudes">Solicitudes</button>
-        <button class="nav-button" type="button" data-section-target="identidades">Identidades</button>
-        <button class="nav-button" type="button" data-section-target="desarrollo">Desarrollo</button>
-        <button class="nav-button" type="button" data-section-target="validacion">Validacion</button>
-        <button class="nav-button" type="button" data-section-target="configuracion">Configuracion</button>
-        <button class="nav-button" type="button" data-section-target="diagnostico">Diagnostico</button>
+        <button class="nav-button active" type="button" data-section-target="inicio"><span>⌂</span><strong>Inicio</strong></button>
+        <button class="nav-button" type="button" data-section-target="firmar"><span>✎</span><strong>Firmar</strong></button>
+        <button class="nav-button" type="button" data-section-target="solicitudes"><span>◷</span><strong>Solicitudes</strong></button>
+        <button class="nav-button" type="button" data-section-target="identidades"><span>▣</span><strong>Identidades</strong></button>
+        <button class="nav-button" type="button" data-section-target="desarrollo"><span>⚙</span><strong>Desarrollo</strong></button>
+        <button class="nav-button" type="button" data-section-target="validacion"><span>✓</span><strong>Validacion</strong></button>
+        <button class="nav-button" type="button" data-section-target="configuracion"><span>⌘</span><strong>Configuracion</strong></button>
+        <button class="nav-button" type="button" data-section-target="diagnostico"><span>!</span><strong>Diagnostico</strong></button>
       </nav>
       <div class="sidebar-footer">
         <span id="sidebar-status-dot" class="status-dot pending"></span>
@@ -35,7 +36,7 @@
     <div class="app-content">
       <header id="main-header" class="header">
         <div>
-          <p class="eyebrow">Servicio local de firma digital</p>
+          <p class="eyebrow">FirMapache</p>
           <h1 id="section-title">Inicio</h1>
         </div>
         <button id="refresh-all" class="secondary">Actualizar</button>
@@ -45,8 +46,13 @@
         <section class="card dashboard-card" data-section="inicio">
           <div class="card-title">
             <div>
-              <h2>Panel general</h2>
-              <p class="quiet">Firma local, tokens, sesiones y diagnostico en un solo lugar.</p>
+              <div class="dashboard-hero">
+                <img class="dashboard-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="">
+                <div>
+                  <h2>FirMapache</h2>
+                  <p class="quiet">Firma digital local para JSON/JWS y PDF/PAdES.</p>
+                </div>
+              </div>
             </div>
             <span id="dashboard-status-badge" class="badge pending">Consultando</span>
           </div>
@@ -183,7 +189,7 @@
       <label for="development-identity">Identidad predeterminada desarrollo</label>
       <select id="development-identity"></select>
       <label for="development-pin-env">Variable de entorno PIN</label>
-      <input id="development-pin-env" type="text" placeholder="MINI_FIRMADOR_DEV_PIN">
+      <input id="development-pin-env" type="text" placeholder="FIRMAPACHE_DEV_PIN">
       <dl class="summary server-summary">
         <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
       </dl>
@@ -206,7 +212,7 @@
         </div>
         <div>
           <label for="pkcs12-password-env">Variable contraseña</label>
-          <input id="pkcs12-password-env" type="text" placeholder="MINI_FIRMADOR_DEV_P12_PASSWORD">
+          <input id="pkcs12-password-env" type="text" placeholder="FIRMAPACHE_DEV_P12_PASSWORD">
         </div>
       </div>
       <label for="pkcs12-path">Archivo .p12/.pfx</label>
@@ -235,11 +241,11 @@
         </div>
         <div>
           <label for="create-p12-cn">Common Name / CN</label>
-          <input id="create-p12-cn" type="text" value="MiniFirmador Dev">
+          <input id="create-p12-cn" type="text" value="FirMapache Dev">
         </div>
         <div>
           <label for="create-p12-o">Organización / O</label>
-          <input id="create-p12-o" type="text" value="MiniFirmador">
+          <input id="create-p12-o" type="text" value="FirMapache">
         </div>
         <div>
           <label for="create-p12-c">País / C</label>
@@ -288,7 +294,7 @@
         <h2>Firma manual</h2>
         <span id="manual-sign-message" class="quiet"></span>
       </div>
-      <p class="quiet manual-intro">Seleccione un archivo. MiniFirmador detecta el tipo y el formato de firma correspondiente automaticamente.</p>
+      <p class="quiet manual-intro">Seleccione un archivo. FirMapache detecta el tipo y el formato de firma correspondiente automaticamente.</p>
       <div class="button-row">
         <button id="manual-select-file" class="secondary">Seleccionar archivo</button>
       </div>
@@ -385,7 +391,10 @@
       <div class="card-title modal-title">
         <div>
           <p class="eyebrow modal-eyebrow">Autorizacion local</p>
-          <h2 id="sign-modal-title">Solicitud de firma</h2>
+          <div class="signing-heading">
+            <img class="signing-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="">
+            <h2 id="sign-modal-title">Solicitud de firma</h2>
+          </div>
         </div>
         <button id="close-sign-modal" class="close-button" aria-label="Cerrar solicitud">Cerrar</button>
       </div>

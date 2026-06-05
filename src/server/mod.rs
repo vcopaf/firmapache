@@ -69,7 +69,7 @@ pub async fn serve(state: AppState) -> Result<()> {
 
     if https {
         let tls_config = tls::load_or_generate_config().await?;
-        info!(%address, "mini-firmador HTTPS service started");
+        info!(%address, "FirMapache HTTPS service started");
 
         axum_server::bind_rustls(address, tls_config)
             .serve(app.into_make_service())
@@ -79,7 +79,7 @@ pub async fn serve(state: AppState) -> Result<()> {
         let listener = tokio::net::TcpListener::bind(address)
             .await
             .with_context(|| format!("could not bind service to {address}"))?;
-        info!(%address, "mini-firmador HTTP service started");
+        info!(%address, "FirMapache HTTP service started");
 
         axum::serve(listener, app)
             .await

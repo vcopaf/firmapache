@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 
-const CONFIG_DIRECTORY: &str = "mini-firmador";
+const CONFIG_DIRECTORY: &str = "firmapache";
+const LEGACY_CONFIG_DIRECTORY: &str = "mini-firmador";
 const CONFIG_FILE: &str = "config.toml";
 const LEGACY_DEFAULT_SERVER_PORT: u16 = 4856;
 
@@ -137,7 +138,7 @@ fn default_allowed_origins() -> Vec<String> {
 }
 
 fn default_development_pin_env() -> String {
-    "MINI_FIRMADOR_DEV_PIN".to_owned()
+    "FIRMAPACHE_DEV_PIN".to_owned()
 }
 
 impl AppConfig {
@@ -146,6 +147,29 @@ impl AppConfig {
         info!(path = %path.display(), "configuration path selected");
 
         if !path.exists() {
+            if let Some(legacy_path) = Self::legacy_config_path()? {
+                let contents =
+                    fs::read_to_string(&legacy_path).map_err(|source| ConfigError::Read {
+                        path: legacy_path.clone(),
+                        source,
+                    })?;
+                let mut config: Self =
+                    toml::from_str(&contents).map_err(|source| ConfigError::Parse {
+                        path: legacy_path.clone(),
+                        source,
+                    })?;
+                if config.development.pin_env == "MINI_FIRMADOR_DEV_PIN" {
+                    config.development.pin_env = default_development_pin_env();
+                }
+                config.validate()?;
+                config.save_to(&path)?;
+                info!(
+                    old_path = %legacy_path.display(),
+                    new_path = %path.display(),
+                    "legacy configuration migrated to FirMapache path"
+                );
+                return Ok(config);
+            }
             let config = Self::default();
             config.save_to(&path)?;
             info!(path = %path.display(), "default configuration created");
@@ -198,6 +222,14 @@ impl AppConfig {
         dirs::config_dir()
             .map(|directory| directory.join(CONFIG_DIRECTORY))
             .ok_or(ConfigError::ConfigDirectoryUnavailable)
+    }
+
+    fn legacy_config_path() -> Result<Option<PathBuf>, ConfigError> {
+        let Some(directory) = dirs::config_dir() else {
+            return Err(ConfigError::ConfigDirectoryUnavailable);
+        };
+        let path = directory.join(LEGACY_CONFIG_DIRECTORY).join(CONFIG_FILE);
+        Ok(path.exists().then_some(path))
     }
 
     pub fn bind_address(&self) -> Result<SocketAddr, ConfigError> {

@@ -284,7 +284,7 @@ fn identity_from_certificate(
         token_label: Some(token.label.clone()),
         token_model: Some("PKCS#12 DEV".to_owned()),
         token_serial: Some(token.id.clone()),
-        token_manufacturer: Some("MiniFirmador".to_owned()),
+        token_manufacturer: Some("FirMapache".to_owned()),
         certificate_id: Some(serial.clone()),
         certificate_label: Some(token.label.clone()),
         subject: parsed
@@ -323,7 +323,7 @@ fn unavailable_identity(
         token_label: Some(token.label.clone()),
         token_model: Some("PKCS#12 DEV".to_owned()),
         token_serial: Some(token.id.clone()),
-        token_manufacturer: Some("MiniFirmador".to_owned()),
+        token_manufacturer: Some("FirMapache".to_owned()),
         certificate_id: Some("manual".to_owned()),
         certificate_label: Some(token.label.clone()),
         subject: Some(reason.to_owned()),

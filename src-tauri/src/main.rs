@@ -1,6 +1,6 @@
 mod commands;
 
-use mini_firmador::{config::AppConfig, init_tracing, server::AppState};
+use firmapache::{config::AppConfig, init_tracing, server::AppState};
 use tauri::{
     Manager, WindowEvent,
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
@@ -66,6 +66,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
+            commands::get_brand_logo_data_url,
             commands::get_config,
             commands::get_server_config,
             commands::update_server_config,
@@ -114,7 +115,7 @@ fn main() {
             commands::restart_server,
         ])
         .run(tauri::generate_context!())
-        .expect("could not run MiniFirmador desktop application");
+        .expect("could not run FirMapache desktop application");
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -129,7 +130,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 .filter(|session| {
                     matches!(
                         session.status,
-                        mini_firmador::models::signing::SigningSessionStatus::Pending
+                        firmapache::models::signing::SigningSessionStatus::Pending
                     )
                 })
                 .count()
@@ -146,7 +147,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     };
     let pending_label = format!("Solicitudes: {pending_sessions} pendientes");
 
-    let title = MenuItemBuilder::with_id("tray_title", "MiniFirmador activo").build(app)?;
+    let title = MenuItemBuilder::with_id("tray_title", "FirMapache").build(app)?;
     let status = MenuItemBuilder::with_id("tray_status", "Estado: Activo").build(app)?;
     let pending = MenuItemBuilder::with_id("tray_pending", pending_label).build(app)?;
     let open = MenuItemBuilder::with_id("open", "Abrir panel principal").build(app)?;
@@ -178,9 +179,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         ])
         .build()?;
 
-    let mut tray = TrayIconBuilder::with_id("mini-firmador")
+    let mut tray = TrayIconBuilder::with_id("firmapache")
         .menu(&menu)
-        .tooltip("MiniFirmador activo")
+        .tooltip("FirMapache activo")
         .show_menu_on_left_click(true)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::DoubleClick {

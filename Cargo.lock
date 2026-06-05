@@ -562,6 +562,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "firmapache"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-server",
+ "base64",
+ "chrono",
+ "cryptoki",
+ "dirs",
+ "lopdf",
+ "openssl",
+ "rcgen",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "time",
+ "tokio",
+ "toml",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "x509-parser",
+ "yasna",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,36 +1101,6 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
-
-[[package]]
-name = "mini-firmador"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "axum-server",
- "base64",
- "chrono",
- "cryptoki",
- "dirs",
- "lopdf",
- "openssl",
- "rcgen",
- "rsa",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "time",
- "tokio",
- "toml",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "x509-parser",
- "yasna",
-]
 
 [[package]]
 name = "minimal-lexical"

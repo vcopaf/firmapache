@@ -213,7 +213,7 @@ fn signature_widget(signature_id: ObjectId, page_id: ObjectId) -> Dictionary {
         "Type" => Object::Name(b"Annot".to_vec()),
         "Subtype" => Object::Name(b"Widget".to_vec()),
         "FT" => Object::Name(b"Sig".to_vec()),
-        "T" => Object::string_literal("MiniFirmador"),
+        "T" => Object::string_literal("FirMapache"),
         "F" => Object::Integer(132),
         "Rect" => Object::Array(vec![
             Object::Real(0.0),

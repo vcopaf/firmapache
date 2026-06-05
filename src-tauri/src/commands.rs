@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use mini_firmador::{
+use firmapache::{
     config::{AppConfig, Pkcs12TokenConfig},
     core::{
         identity::{self, SigningIdentity},
@@ -34,6 +34,7 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 const SIGNING_WINDOW_LABEL: &str = "signing";
+const BRAND_LOGO_PNG: &[u8] = include_bytes!("../icons/icon.png");
 
 pub struct DesktopState {
     server_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
@@ -218,6 +219,11 @@ pub struct TokenCertificateCacheView {
 }
 
 #[tauri::command]
+pub fn get_brand_logo_data_url() -> String {
+    format!("data:image/png;base64,{}", STANDARD.encode(BRAND_LOGO_PNG))
+}
+
+#[tauri::command]
 pub fn get_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
     let config = current_config(&state)?;
     let pkcs11_library_path = provider::detect_pkcs11_library(&config)
@@ -225,7 +231,7 @@ pub fn get_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
         .and_then(|library| library.path);
 
     Ok(ServiceStatus {
-        service: "mini-firmador",
+        service: "firmapache",
         version: env!("CARGO_PKG_VERSION"),
         active: true,
         host: config.server.host.clone(),
@@ -634,7 +640,7 @@ pub async fn inspect_pdf_file(path: String) -> Result<PdfDocumentInfo, String> {
         return Err("archivo PDF no seleccionado".to_owned());
     }
     let path = PathBuf::from(path);
-    tauri::async_runtime::spawn_blocking(move || mini_firmador::core::pdf::inspect_pdf_file(&path))
+    tauri::async_runtime::spawn_blocking(move || firmapache::core::pdf::inspect_pdf_file(&path))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
@@ -995,7 +1001,7 @@ pub async fn export_diagnostics(
         .file()
         .add_filter("Diagnostico JSON", &["json"])
         .add_filter("Texto", &["txt"])
-        .set_file_name("mini-firmador-diagnostico.json")
+        .set_file_name("firmapache-diagnostico.json")
         .blocking_save_file();
     let Some(destination) = destination else {
         return Ok(ExportDiagnosticsResponse {
@@ -1294,7 +1300,7 @@ fn suggested_signed_pdf_file_name(path: &Path) -> String {
 
 fn selected_manual_file(path: PathBuf, size_bytes: u64) -> SelectedManualFile {
     let detected_format = detected_format(&path);
-    let pdf_info = mini_firmador::core::pdf::inspect_pdf_file(&path).ok();
+    let pdf_info = firmapache::core::pdf::inspect_pdf_file(&path).ok();
     let is_pdf = detected_format == "pdf"
         || pdf_info
             .as_ref()
@@ -1418,7 +1424,7 @@ pub fn show_signing_window_for_app(app: &AppHandle) -> Result<(), String> {
                 SIGNING_WINDOW_LABEL,
                 WebviewUrl::App("index.html?window=signing".into()),
             )
-            .title("Solicitud de firma - MiniFirmador")
+            .title("Solicitud de firma - FirMapache")
             .inner_size(620.0, 720.0)
             .min_inner_size(520.0, 560.0)
             .resizable(false)
@@ -1493,7 +1499,7 @@ fn status_name(status: SigningSessionStatus) -> &'static str {
 }
 
 fn token_certificate_cache_view(
-    state: mini_firmador::core::cache::TokenCertificateCacheState,
+    state: firmapache::core::cache::TokenCertificateCacheState,
 ) -> Result<TokenCertificateCacheView, String> {
     Ok(TokenCertificateCacheView {
         token_count: state.tokens.len(),

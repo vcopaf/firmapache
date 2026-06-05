@@ -1,15 +1,14 @@
-# mini-firmador
+# FirMapache
 
-Servicio REST local en Rust que servira como bridge entre un navegador y un token
-PKCS#11 para firma digital.
+Firma digital local para JSON/JWS y PDF/PAdES con soporte PKCS#11 y PKCS#12.
 
-Esta fase expone endpoints de salud y version, selecciona una libreria PKCS#11
-compatible y enumera slots con tokens presentes. Soporta el driver propietario
-Feitian ePass2003 y OpenSC, y lista certificados X.509 publicos del token.
-Incluye una interfaz Tauri administrativa que reutiliza el mismo core y el
-mismo servidor local. Soporta JWS compact RS256 y firma PDF basica con
-`ETSI.CAdES.detached`. La firma de hash requiere un PIN provisto en cada
-solicitud y no lo almacena.
+FirMapache combina un servicio HTTPS local compatible con `POST /sign`, una
+interfaz de escritorio Tauri con bandeja del sistema y un core Rust reutilizable
+para firmar con tokens criptograficos reales. Soporta JWS compact RS256, firma
+PDF `ETSI.CAdES.detached`, cache de tokens/certificados, validacion,
+diagnostico y flujo visual de aprobacion. El PIN se solicita solo en la UI local
+o comandos internos de escritorio, no se guarda y no forma parte del payload
+publico de `POST /sign`.
 
 ## Requisitos
 
@@ -31,12 +30,12 @@ con lectores de tarjetas inteligentes.
 
 El servicio selecciona el modulo en este orden:
 
-1. La ruta configurada en `MINI_FIRMADOR_PKCS11`.
-2. La ruta persistida en `~/.config/mini-firmador/config.toml`.
+1. La ruta configurada en `FIRMAPACHE_PKCS11`.
+2. La ruta persistida en `~/.config/firmapache/config.toml`.
 3. El driver Feitian ePass2003 en su ruta comun de instalacion.
 4. Rutas comunes de OpenSC en Linux.
 
-Si `MINI_FIRMADOR_PKCS11` esta definida pero no existe, el servicio informa el
+Si `FIRMAPACHE_PKCS11` esta definida pero no existe, el servicio informa el
 error en los endpoints PKCS#11 en lugar de usar automaticamente otro modulo.
 Si una ruta persistida no existe, el servicio registra la situacion y continua
 con la autodeteccion.
@@ -46,7 +45,7 @@ con la autodeteccion.
 Al iniciar, el servicio crea y carga automaticamente:
 
 ```text
-~/.config/mini-firmador/config.toml
+~/.config/firmapache/config.toml
 ```
 
 En Linux esta ruta se obtiene mediante el directorio de configuracion del
@@ -74,14 +73,14 @@ default_identity_id = ""
 enabled = false
 auto_sign = false
 default_identity_id = ""
-pin_env = "MINI_FIRMADOR_DEV_PIN"
+pin_env = "FIRMAPACHE_DEV_PIN"
 fallback_to_modal = true
 
 [[development.pkcs12_tokens]]
 id = "dev-token-qa"
 label = "Token virtual QA"
 path = "/home/user/certs/dev-token.p12"
-password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
+password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
 ```
 
 `POST /config` actualiza solo los campos enviados y persiste el resultado. La
@@ -89,7 +88,7 @@ ruta PKCS#11 actualizada se usa en las siguientes operaciones. Como el
 servidor no se reinicia automaticamente, los cambios de `server` y `cors`
 entran en vigor al siguiente inicio.
 
-La variable `MINI_FIRMADOR_PKCS11` mantiene prioridad absoluta sobre el valor
+La variable `FIRMAPACHE_PKCS11` mantiene prioridad absoluta sobre el valor
 guardado en el TOML.
 
 El bloque `[signing]` guarda solamente la identidad publica predeterminada para
@@ -116,8 +115,8 @@ Con `server.https = true`, el servicio genera automaticamente un certificado
 self-signed para `localhost` y `127.0.0.1` en:
 
 ```text
-~/.config/mini-firmador/certs/localhost.crt
-~/.config/mini-firmador/certs/localhost.key
+~/.config/firmapache/certs/localhost.crt
+~/.config/firmapache/certs/localhost.key
 ```
 
 El certificado local no se instala en el trust store del sistema. Por eso
@@ -171,7 +170,7 @@ La ventana permite:
 
 La aplicacion vive en la bandeja del sistema. Al cerrar la ventana principal, la
 app se oculta pero el servidor local sigue activo. Desde el tray se puede abrir
-MiniFirmador, mostrar sesiones pendientes, reiniciar el servidor embebido o
+FirMapache, mostrar sesiones pendientes, reiniciar el servidor embebido o
 salir completamente.
 
 ### Configurar servidor local desde la UI
@@ -188,7 +187,7 @@ La UI muestra la URL activa, por ejemplo:
 https://localhost:4637/
 ```
 
-Los cambios se guardan en `~/.config/mini-firmador/config.toml`, pero requieren
+Los cambios se guardan en `~/.config/firmapache/config.toml`, pero requieren
 reiniciar el servidor local para aplicarse. Use el boton **Reiniciar servidor**
 desde la misma seccion o desde el menu del tray.
 
@@ -226,14 +225,14 @@ Configuracion de ejemplo:
 enabled = true
 auto_sign = true
 default_identity_id = "pkcs11:..."
-pin_env = "MINI_FIRMADOR_DEV_PIN"
+pin_env = "FIRMAPACHE_DEV_PIN"
 fallback_to_modal = true
 ```
 
 Uso:
 
 ```bash
-export MINI_FIRMADOR_DEV_PIN="12345678"
+export FIRMAPACHE_DEV_PIN="12345678"
 cargo tauri dev
 ```
 
@@ -243,7 +242,7 @@ automaticamente usando `development.default_identity_id` y el PIN leido desde
 
 Si falta identidad, el PIN no existe en el entorno o la autofirma falla:
 
-- con `fallback_to_modal = true`, MiniFirmador continua con la ventana de firma
+- con `fallback_to_modal = true`, FirMapache continua con la ventana de firma
   interactiva normal;
 - con `fallback_to_modal = false`, `POST /sign` responde un error JSON claro.
 
@@ -256,7 +255,7 @@ sin confirmacion visual.
 
 ### Tokens virtuales P12/PFX de desarrollo
 
-MiniFirmador puede importar archivos `.p12` o `.pfx` existentes como identidades
+FirMapache puede importar archivos `.p12` o `.pfx` existentes como identidades
 virtuales de desarrollo (`provider = "pkcs12"`). Esto no reemplaza a PKCS#11 en
 produccion: sirve para QA, pruebas automatizadas y ambientes locales donde no se
 quiere depender de un token fisico.
@@ -274,13 +273,13 @@ Configuracion de ejemplo:
 id = "dev-token-qa"
 label = "Token virtual QA"
 path = "/home/user/certs/dev-token.p12"
-password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
+password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
 ```
 
 Uso:
 
 ```bash
-export MINI_FIRMADOR_DEV_P12_PASSWORD="clave"
+export FIRMAPACHE_DEV_P12_PASSWORD="clave"
 cargo tauri dev
 ```
 
@@ -306,7 +305,7 @@ Crear token virtual desde la app:
    elija una ruta `.p12` o `.pfx`.
 2. Complete ID, etiqueta, CN, organizacion, pais, vigencia y contraseña.
 3. Pulse **Crear token virtual**.
-4. MiniFirmador guarda el archivo y lo registra automaticamente en
+4. FirMapache guarda el archivo y lo registra automaticamente en
    `development.pkcs12_tokens` con `password_env = ""`.
 
 Con `password_env = ""`, el token se puede usar en firma manual escribiendo la
@@ -314,7 +313,7 @@ contraseña en la UI. Para usarlo en autofirma, configure una variable de entorn
 y actualice el TOML, por ejemplo:
 
 ```bash
-export MINI_FIRMADOR_DEV_P12_PASSWORD="clave"
+export FIRMAPACHE_DEV_P12_PASSWORD="clave"
 ```
 
 ```toml
@@ -322,7 +321,7 @@ export MINI_FIRMADOR_DEV_P12_PASSWORD="clave"
 id = "dev-token-local"
 label = "Token virtual local"
 path = "/home/user/dev-token.p12"
-password_env = "MINI_FIRMADOR_DEV_P12_PASSWORD"
+password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
 ```
 
 Limitaciones de seguridad:
@@ -333,7 +332,7 @@ Limitaciones de seguridad:
 - no guardar claves privadas desencriptadas en disco;
 - no mantener la clave privada cargada mas tiempo del necesario para firmar.
 
-Cuando llega una solicitud compatible, MiniFirmador abre una ventana dedicada
+Cuando llega una solicitud compatible, FirMapache abre una ventana dedicada
 `Solicitud de firma` sobre el escritorio. Esa ventana pide certificado y PIN,
 muestra estados de carga como `Firmando... no retire el token`, y deshabilita
 los botones mientras se completa la operacion. El PIN solo existe durante esa
@@ -341,7 +340,7 @@ aprobacion y no se almacena.
 
 ## Cache de tokens y certificados
 
-MiniFirmador carga tokens y certificados en segundo plano al iniciar Tauri para
+FirMapache carga tokens y certificados en segundo plano al iniciar Tauri para
 que la ventana de firma abra rapido y no repita lecturas PKCS#11 innecesarias.
 La cache guarda solamente metadata publica:
 
@@ -368,7 +367,7 @@ por token. Esto evita depender visualmente solo del `slot_id` cuando hay varios
 tokens o varios certificados conectados.
 
 La UI permite marcar una identidad con **Usar como predeterminado**. Si no hay
-predeterminada y existe una sola identidad disponible, MiniFirmador la selecciona
+predeterminada y existe una sola identidad disponible, FirMapache la selecciona
 automaticamente. Si la identidad guardada ya no esta conectada, se muestra como
 no disponible y la UI advierte:
 
@@ -383,7 +382,7 @@ que el token seleccionado ya no esta disponible.
 ## Firma manual
 
 La seccion **Firma manual** permite seleccionar un archivo local sin depender de
-una web externa. MiniFirmador detecta automaticamente el tipo de archivo y el
+una web externa. FirMapache detecta automaticamente el tipo de archivo y el
 formato de salida:
 
 - JSON: genera JWS compact y abre **Guardar como** automaticamente.
@@ -392,7 +391,7 @@ formato de salida:
   CMS/CAdES detached SHA-256, y abre **Guardar como** automaticamente.
 - Otros formatos: se muestran como no soportados.
 
-1. Abrir MiniFirmador con `cargo tauri dev`.
+1. Abrir FirMapache con `cargo tauri dev`.
 2. Esperar o pulsar **Actualizar tokens/certificados** si el token se conecto
    despues de abrir la app.
 3. En **Firma manual**, pulsar **Seleccionar archivo**.
@@ -513,7 +512,7 @@ curl -k https://localhost:4637/certificates
 Para probar explicitamente un ePass2003 con el driver propietario:
 
 ```bash
-export MINI_FIRMADOR_PKCS11=/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0
+export FIRMAPACHE_PKCS11=/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0
 cargo run
 
 curl -k https://localhost:4637/pkcs11/library
@@ -524,11 +523,11 @@ curl -k https://localhost:4637/certificates
 Respuestas esperadas:
 
 ```json
-{"status":"ok","service":"mini-firmador"}
+{"status":"ok","service":"firmapache"}
 ```
 
 ```json
-{"name":"mini-firmador","version":"0.1.0"}
+{"name":"firmapache","version":"0.1.0"}
 ```
 
 Si el driver Feitian se selecciona automaticamente:
@@ -610,7 +609,7 @@ Levantar la aplicacion:
 cargo tauri dev
 ```
 
-Puede cerrar la ventana principal despues de iniciar: MiniFirmador queda en
+Puede cerrar la ventana principal despues de iniciar: FirMapache queda en
 segundo plano en el tray y el servicio `https://localhost:4637/` sigue
 respondiendo.
 
@@ -757,7 +756,7 @@ Respuesta:
 ```
 
 **Advertencia de seguridad:** el token puede bloquearse tras intentos de PIN
-incorrectos. `mini-firmador` realiza un solo intento de login por solicitud y
+incorrectos. `firmapache` realiza un solo intento de login por solicitud y
 no reintenta automaticamente cuando la autenticacion falla.
 
 Si se omite `certificate_id`, el servicio conserva el modo compatible anterior
