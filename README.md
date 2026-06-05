@@ -74,11 +74,11 @@ estructura ya esta lista en `docs/images/`.
 
 | Pantalla | Placeholder |
 | --- | --- |
-| Dashboard | ![Dashboard](docs/images/dashboard.svg) |
-| Firma manual | ![Firma manual](docs/images/firma-manual.svg) |
-| Solicitud de firma | ![Solicitud de firma](docs/images/solicitud-firma.svg) |
-| Identidades | ![Identidades](docs/images/identidades.svg) |
-| Diagnóstico | ![Diagnóstico](docs/images/diagnostico.svg) |
+| Dashboard | ![Dashboard](docs/images/dashboard.png) |
+| Firma manual | ![Firma manual](docs/images/firma-manual.png) |
+| Solicitud de firma | ![Solicitud de firma](docs/images/solicitud-firma.png) |
+| Identidades | ![Identidades](docs/images/identidades.png) |
+| Diagnóstico | ![Diagnóstico](docs/images/diagnostico.png) |
 
 ## Requisitos
 
