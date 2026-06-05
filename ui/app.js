@@ -301,10 +301,14 @@ function renderDevelopmentConfig(development) {
   document.getElementById("development-enabled").checked = Boolean(development.enabled);
   document.getElementById("development-auto-sign").checked = Boolean(development.auto_sign);
   document.getElementById("development-fallback").checked = Boolean(development.fallback_to_modal);
-  document.getElementById("development-pin-env").value = development.pin_env || "FIRMAPACHE_DEV_PIN";
-  document.getElementById("development-pin-status").textContent = development.pin_env_defined
-    ? "Variable encontrada"
-    : "Variable no encontrada";
+  document.getElementById("development-remember-pin").checked = Boolean(development.remember_pin);
+  document.getElementById("development-pin").value = "";
+  document.getElementById("development-pin-status").textContent = development.has_local_pin
+    ? "Recordado localmente"
+    : development.pin_env_defined
+      ? "Variable de entorno compatible encontrada"
+      : "Ingrese PIN/contraseña para guardar o probar";
+  document.getElementById("development-pin-warning").classList.toggle("hidden", !development.remember_pin);
   populateDevelopmentIdentities();
   updateDashboard();
 }
@@ -313,17 +317,21 @@ async function saveDevelopmentConfig() {
   const payload = readDevelopmentConfigInput();
   developmentConfig = await invoke("update_development_config", payload);
   renderDevelopmentConfig(developmentConfig);
+  document.getElementById("development-pin").value = "";
   document.getElementById("development-message").textContent = "Modo desarrollo guardado";
   window.setTimeout(() => { document.getElementById("development-message").textContent = ""; }, 2500);
 }
 
 async function testDevelopmentConfig() {
-  const result = await invoke("test_development_config");
+  const result = await invoke("test_development_config", {
+    pin: document.getElementById("development-pin").value || null,
+  });
   document.getElementById("development-message").textContent = result.ready
-    ? "Configuración de desarrollo lista"
+    ? "✓ Autofirma configurada correctamente"
     : result.messages.join(" | ");
   developmentConfig = await invoke("get_development_config");
   renderDevelopmentConfig(developmentConfig);
+  document.getElementById("development-pin").value = "";
 }
 
 async function selectPkcs12File() {
@@ -334,15 +342,21 @@ async function selectPkcs12File() {
 }
 
 async function addPkcs12Token() {
+  const id = document.getElementById("pkcs12-id").value.trim();
   pkcs12Tokens = await invoke("add_pkcs12_token", {
-    id: document.getElementById("pkcs12-id").value,
+    id,
     label: document.getElementById("pkcs12-label").value,
     path: document.getElementById("pkcs12-path").value,
-    passwordEnv: document.getElementById("pkcs12-password-env").value,
+    password: document.getElementById("pkcs12-password").value,
+    rememberPassword: document.getElementById("pkcs12-remember-password").checked,
+    passwordEnv: null,
   });
   renderPkcs12Tokens();
   await refreshSigningIdentities();
-  document.getElementById("development-message").textContent = "Token virtual importado";
+  document.getElementById("pkcs12-password").value = "";
+  document.getElementById("development-message").textContent =
+    "✓ Token importado ✓ Identidad registrada";
+  await maybeSetImportedTokenAsDefault(id);
 }
 
 async function selectP12OutputPath() {
@@ -376,7 +390,8 @@ async function generateP12Token() {
     renderPkcs12Tokens();
     await refreshSigningIdentities();
     document.getElementById("development-message").textContent =
-      `Token virtual creado correctamente: ${response.identity_id}`;
+      "✓ Token virtual creado ✓ Registrado automáticamente ✓ Identidad disponible para firma";
+    await maybeSetIdentityAsDefault(response.identity_id);
   } finally {
     document.getElementById("create-p12-password").value = "";
     document.getElementById("create-p12-password-confirm").value = "";
@@ -400,7 +415,9 @@ function readDevelopmentConfigInput() {
     enabled: document.getElementById("development-enabled").checked,
     autoSign: document.getElementById("development-auto-sign").checked,
     defaultIdentityId: document.getElementById("development-identity").value,
-    pinEnv: document.getElementById("development-pin-env").value.trim() || "FIRMAPACHE_DEV_PIN",
+    pinEnv: developmentConfig?.pin_env || "FIRMAPACHE_DEV_PIN",
+    rememberPin: document.getElementById("development-remember-pin").checked,
+    pin: document.getElementById("development-pin").value || null,
     fallbackToModal: document.getElementById("development-fallback").checked,
   };
 }
@@ -419,8 +436,9 @@ function renderPkcs12Tokens() {
       `ID: ${token.id}`,
       `Path: ${token.path}`,
       `Archivo existe: ${yesNo(token.path_exists)}`,
-      `Password env: ${token.password_env}`,
-      `Password env definido: ${yesNo(token.password_env_defined)}`,
+      `Contraseña local: ${yesNo(token.has_local_password)}`,
+      token.password_env ? `Variable compatible: ${token.password_env}` : "",
+      token.password_env ? `Variable definida: ${yesNo(token.password_env_defined)}` : "",
       token.identity?.subject ? `Subject: ${token.identity.subject}` : "Certificado: no leíble",
     ]);
     const actions = document.createElement("div");
@@ -1287,6 +1305,43 @@ async function clearDefaultIdentity() {
   }
 }
 
+async function maybeSetImportedTokenAsDefault(tokenId) {
+  const identity = signingIdentities.find((item) => item.virtual_token_id === tokenId && item.is_available);
+  if (identity) {
+    await maybeSetIdentityAsDefault(identity.identity_id);
+  }
+}
+
+async function maybeSetIdentityAsDefault(identityId) {
+  if (!identityId) {
+    return;
+  }
+  const shouldUse = window.confirm("¿Desea usar esta identidad como predeterminada?");
+  if (!shouldUse) {
+    return;
+  }
+  signingIdentities = await invoke("set_default_signing_identity", { identityId });
+  populateSigningIdentities();
+  renderCertificates();
+  if (developmentConfig) {
+    developmentConfig.default_identity_id = identityId;
+    populateDevelopmentIdentities();
+  }
+  setAppStatus("Identidad predeterminada actualizada", "active");
+}
+
+function togglePasswordVisibility(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) {
+    return;
+  }
+  const visible = input.type === "text";
+  input.type = visible ? "password" : "text";
+  document.querySelectorAll(`[data-toggle-password="${inputId}"]`).forEach((toggle) => {
+    toggle.textContent = visible ? "Mostrar" : "Ocultar";
+  });
+}
+
 function setManualProgress(active, text = "Firmando archivo... no retire el token") {
   const textElement = document.getElementById("manual-sign-progress-text");
   if (textElement) {
@@ -1442,8 +1497,9 @@ function renderDiagnostics(report) {
       `Activado: ${yesNo(report.development_enabled)}`,
       `Autofirma: ${yesNo(report.development_auto_sign)}`,
       `Identidad dev: ${report.development_default_identity_id || "-"}`,
-      `PIN env: ${report.development_pin_env || "-"}`,
-      `PIN env definido: ${yesNo(report.development_pin_env_defined)}`,
+      `PIN local recordado: ${yesNo(report.development_has_local_pin)}`,
+      report.development_pin_env ? `Variable compatible: ${report.development_pin_env}` : "",
+      report.development_pin_env ? `Variable definida: ${yesNo(report.development_pin_env_defined)}` : "",
     ]),
     item("Tokens y certificados", [
       `Tokens detectados: ${report.token_count}`,
@@ -1463,7 +1519,7 @@ function renderDiagnostics(report) {
     ]),
     item("Tokens virtuales P12", [
       ...((report.pkcs12_tokens || []).slice(0, 8).map((token) =>
-        `${token.label || token.id} | path: ${yesNo(token.path_exists)} | password env: ${yesNo(token.password_env_defined)} | cert: ${yesNo(token.certificate_readable)} | ${token.subject || "-"}`
+        `${token.label || token.id} | path: ${yesNo(token.path_exists)} | contraseña local: ${yesNo(token.has_local_password)} | cert: ${yesNo(token.certificate_readable)} | ${token.subject || "-"}`
       )),
     ]),
   ]);
@@ -1571,8 +1627,11 @@ function bindEvents() {
     document.getElementById("development-identity").addEventListener("change", () => {
       document.getElementById("development-message").textContent = "";
     });
-    document.getElementById("development-pin-env").addEventListener("input", () => {
-      document.getElementById("development-pin-status").textContent = "Guardar o probar para verificar";
+    document.getElementById("development-pin").addEventListener("input", () => {
+      document.getElementById("development-pin-status").textContent = "Listo para guardar o probar";
+    });
+    document.getElementById("development-remember-pin").addEventListener("change", (event) => {
+      document.getElementById("development-pin-warning").classList.toggle("hidden", !event.target.checked);
     });
     document.getElementById("reload-tokens").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("reload-certificates").addEventListener("click", () => run(refreshTokenCertificateCache));
@@ -1594,6 +1653,10 @@ function bindEvents() {
       updateManualState();
     });
   }
+
+  document.querySelectorAll("[data-toggle-password]").forEach((toggle) => {
+    toggle.addEventListener("click", () => togglePasswordVisibility(toggle.dataset.togglePassword));
+  });
 
   document.getElementById("close-sign-modal").addEventListener("click", () => run(closeSigningWindow));
   document.getElementById("modal-certificate").addEventListener("change", () => {

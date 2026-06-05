@@ -101,6 +101,8 @@ pub fn generate_virtual_token(
         label: input.label,
         path: input.output_path,
         password_env: String::new(),
+        remember_password: true,
+        local_password: Some(input.password),
     };
     let certificate_der = certificate
         .to_der()
@@ -193,8 +195,7 @@ fn self_signed_certificate(
 }
 
 pub fn test_token(token: &Pkcs12TokenConfig) -> Result<SigningIdentity, Pkcs12Error> {
-    let password = env::var(token.password_env.trim())
-        .map_err(|_| Pkcs12Error::PasswordEnvironmentVariableNotFound)?;
+    let password = token_password(token)?;
     let loaded = load_token(token, &password)?;
     Ok(identity_from_certificate(
         token,
@@ -207,8 +208,8 @@ fn identity_for_token(token: &Pkcs12TokenConfig) -> SigningIdentity {
     if !Path::new(&token.path).exists() {
         return unavailable_identity(token, "Archivo PKCS#12 no disponible", false);
     }
-    let password = match env::var(token.password_env.trim()) {
-        Ok(password) if !password.is_empty() => password,
+    let password = match token_password(token) {
+        Ok(password) => password,
         _ => return unavailable_identity(token, "Contraseña PKCS#12 no disponible", true),
     };
 
@@ -223,6 +224,22 @@ fn identity_for_token(token: &Pkcs12TokenConfig) -> SigningIdentity {
             unavailable_identity(token, "Token virtual PKCS#12 no disponible", true)
         }
     }
+}
+
+fn token_password(token: &Pkcs12TokenConfig) -> Result<String, Pkcs12Error> {
+    if token.remember_password {
+        if let Some(password) = token
+            .local_password
+            .as_deref()
+            .filter(|password| !password.is_empty())
+        {
+            return Ok(password.to_owned());
+        }
+    }
+    env::var(token.password_env.trim())
+        .ok()
+        .filter(|password| !password.is_empty())
+        .ok_or(Pkcs12Error::PasswordEnvironmentVariableNotFound)
 }
 
 fn token_for_identity<'a>(

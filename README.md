@@ -74,6 +74,8 @@ enabled = false
 auto_sign = false
 default_identity_id = ""
 pin_env = "FIRMAPACHE_DEV_PIN"
+remember_pin = false
+local_pin = ""
 fallback_to_modal = true
 
 [[development.pkcs12_tokens]]
@@ -81,6 +83,8 @@ id = "dev-token-qa"
 label = "Token virtual QA"
 path = "/home/user/certs/dev-token.p12"
 password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
+remember_password = false
+local_password = ""
 ```
 
 `POST /config` actualiza solo los campos enviados y persiste el resultado. La
@@ -102,14 +106,17 @@ Si el token no expone serial, se usa un identificador basado en `slot_id` y
 `certificate_id`.
 
 El bloque `[development]` existe solo para pruebas locales. Permite autofirmar
-solicitudes `POST /sign` con token PKCS#11 fisico usando una identidad
-configurada y un PIN leido desde una variable de entorno. El PIN nunca se guarda
-en `config.toml`.
+solicitudes `POST /sign` usando una identidad configurada. La UI permite
+ingresar el PIN/contraseña y, opcionalmente, recordarlo localmente en este
+equipo para comodidad de desarrollo. La variable `pin_env` se mantiene como
+compatibilidad, pero ya no es el flujo principal.
 
-Tambien puede registrar tokens virtuales `.p12` o `.pfx` para desarrollo. En
-ese caso solo se guarda la ruta del archivo y el nombre de la variable de
-entorno que contiene la contraseña; no se guarda la contraseña ni la clave
-privada desencriptada.
+Tambien puede registrar tokens virtuales `.p12` o `.pfx` para desarrollo. Al
+importar o crear un token virtual desde la UI, queda registrado
+automaticamente, las identidades se actualizan y puede marcarse como identidad
+predeterminada. Si se usa "Recordar contraseña localmente", la contraseña se
+guarda en `config.toml` solo para modo desarrollo. No se guarda la clave privada
+desencriptada.
 
 Con `server.https = true`, el servicio genera automaticamente un certificado
 self-signed para `localhost` y `127.0.0.1` en:
@@ -226,29 +233,33 @@ enabled = true
 auto_sign = true
 default_identity_id = "pkcs11:..."
 pin_env = "FIRMAPACHE_DEV_PIN"
+remember_pin = true
+local_pin = "12345678"
 fallback_to_modal = true
 ```
 
-Uso:
-
-```bash
-export FIRMAPACHE_DEV_PIN="12345678"
-cargo tauri dev
-```
-
 Con `enabled = true` y `auto_sign = true`, `POST /sign` intenta firmar
-automaticamente usando `development.default_identity_id` y el PIN leido desde
-`development.pin_env`. Funciona para `format = "jws"` y `format = "pdf"`.
+automaticamente usando `development.default_identity_id` y el PIN/contraseña
+configurado para desarrollo. Funciona para `format = "jws"` y `format = "pdf"`.
+La variable `FIRMAPACHE_DEV_PIN` sigue funcionando como compatibilidad si no se
+recuerda un PIN local.
 
-Si falta identidad, el PIN no existe en el entorno o la autofirma falla:
+Si falta identidad, no hay PIN/contraseña disponible o la autofirma falla:
 
 - con `fallback_to_modal = true`, FirMapache continua con la ventana de firma
   interactiva normal;
 - con `fallback_to_modal = false`, `POST /sign` responde un error JSON claro.
 
-La UI incluye una seccion **Modo desarrollo** para activar/desactivar esta
-funcion, elegir la identidad, configurar el nombre de la variable de entorno y
-probar si el PIN esta disponible. No pide ni guarda el PIN.
+La UI incluye una seccion **Desarrollo > Autofirma** con este flujo:
+
+1. Activar autofirma.
+2. Elegir identidad.
+3. Ingresar PIN / contraseña.
+4. Opcionalmente marcar **Recordar PIN localmente**.
+5. Pulsar **Probar autofirma**.
+
+Si se recuerda el PIN, queda almacenado localmente en este equipo y claramente
+marcado como modo desarrollo. No usar esta opcion en equipos compartidos.
 
 Advertencia: no use este modo con tokens oficiales en produccion. Permite firmar
 sin confirmacion visual.
@@ -274,18 +285,14 @@ id = "dev-token-qa"
 label = "Token virtual QA"
 path = "/home/user/certs/dev-token.p12"
 password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
+remember_password = true
+local_password = "clave"
 ```
 
-Uso:
-
-```bash
-export FIRMAPACHE_DEV_P12_PASSWORD="clave"
-cargo tauri dev
-```
-
-La UI permite importar el archivo, probar si la variable de entorno existe y
-mostrar el certificado publico cuando la contraseña esta disponible. Las
-identidades se muestran junto a las fisicas:
+La UI permite importar el archivo indicando la contraseña directamente. El token
+queda registrado, las identidades se actualizan y puede marcarse como
+predeterminado. `password_env` se mantiene como compatibilidad para instalaciones
+existentes. Las identidades se muestran junto a las fisicas:
 
 ```text
 [PKCS#12 DEV] Token virtual QA
@@ -301,33 +308,20 @@ En firma manual, si selecciona una identidad P12, el campo de PIN se trata como
 
 Crear token virtual desde la app:
 
-1. En **Configuracion > Tokens virtuales P12/PFX**, pulse **Guardar como...** y
+1. En **Desarrollo > Tokens virtuales P12/PFX**, pulse **Guardar como...** y
    elija una ruta `.p12` o `.pfx`.
 2. Complete ID, etiqueta, CN, organizacion, pais, vigencia y contraseña.
 3. Pulse **Crear token virtual**.
 4. FirMapache guarda el archivo y lo registra automaticamente en
-   `development.pkcs12_tokens` con `password_env = ""`.
-
-Con `password_env = ""`, el token se puede usar en firma manual escribiendo la
-contraseña en la UI. Para usarlo en autofirma, configure una variable de entorno
-y actualice el TOML, por ejemplo:
-
-```bash
-export FIRMAPACHE_DEV_P12_PASSWORD="clave"
-```
-
-```toml
-[[development.pkcs12_tokens]]
-id = "dev-token-local"
-label = "Token virtual local"
-path = "/home/user/dev-token.p12"
-password_env = "FIRMAPACHE_DEV_P12_PASSWORD"
-```
+   `development.pkcs12_tokens`.
+5. La identidad queda disponible inmediatamente y la app pregunta si desea
+   usarla como predeterminada.
 
 Limitaciones de seguridad:
 
 - no usar como modo produccion;
-- no guardar contraseñas en `config.toml`;
+- el PIN/contraseña recordado queda en almacenamiento local simple de desarrollo;
+- no guardar credenciales en equipos compartidos;
 - no exportar contraseñas en diagnostico;
 - no guardar claves privadas desencriptadas en disco;
 - no mantener la clave privada cargada mas tiempo del necesario para firmar.

@@ -91,6 +91,8 @@ pub struct DevelopmentConfigView {
     auto_sign: bool,
     default_identity_id: String,
     pin_env: String,
+    remember_pin: bool,
+    has_local_pin: bool,
     fallback_to_modal: bool,
     pin_env_defined: bool,
 }
@@ -107,6 +109,8 @@ pub struct Pkcs12TokenView {
     label: String,
     path: String,
     password_env: String,
+    remember_password: bool,
+    has_local_password: bool,
     path_exists: bool,
     password_env_defined: bool,
     identity: Option<SigningIdentity>,
@@ -301,6 +305,8 @@ pub fn update_development_config(
     auto_sign: bool,
     default_identity_id: String,
     pin_env: String,
+    remember_pin: bool,
+    pin: Option<String>,
     fallback_to_modal: bool,
 ) -> Result<DevelopmentConfigView, String> {
     let pin_env = pin_env.trim().to_owned();
@@ -312,6 +318,14 @@ pub fn update_development_config(
     config.development.auto_sign = auto_sign;
     config.development.default_identity_id = default_identity_id.trim().to_owned();
     config.development.pin_env = pin_env;
+    config.development.remember_pin = remember_pin;
+    if remember_pin {
+        if let Some(pin) = pin.filter(|pin| !pin.is_empty()) {
+            config.development.local_pin = Some(pin);
+        }
+    } else {
+        config.development.local_pin = None;
+    }
     config.development.fallback_to_modal = fallback_to_modal;
     config.save().map_err(|error| error.to_string())?;
     state
@@ -323,22 +337,40 @@ pub fn update_development_config(
 #[tauri::command]
 pub fn test_development_config(
     state: State<'_, AppState>,
+    pin: Option<String>,
 ) -> Result<DevelopmentConfigTestResult, String> {
     let config = current_config(&state)?;
     let mut messages = Vec::new();
     if !config.development.enabled {
-        messages.push("Development mode is disabled".to_owned());
+        messages.push("La autofirma no está activada".to_owned());
     }
     if !config.development.auto_sign {
-        messages.push("Development auto-sign is disabled".to_owned());
+        messages.push("La autofirma de solicitudes está desactivada".to_owned());
     }
     if config.development.default_identity_id.trim().is_empty() {
-        messages.push("Development default identity is not configured".to_owned());
+        messages.push("Seleccione una identidad para autofirma".to_owned());
     }
-    if std::env::var(&config.development.pin_env).is_err() {
-        messages.push("Development PIN environment variable not found".to_owned());
+    let pin = pin
+        .filter(|pin| !pin.is_empty())
+        .or_else(|| {
+            config
+                .development
+                .remember_pin
+                .then(|| config.development.local_pin.clone())
+                .flatten()
+        })
+        .or_else(|| std::env::var(&config.development.pin_env).ok());
+    if pin.is_none() {
+        messages.push("PIN / contraseña no configurada".to_owned());
     }
-    let ready = messages.is_empty();
+
+    if messages.is_empty() {
+        match test_development_signature(&state, &config, pin.unwrap_or_default()) {
+            Ok(()) => messages.push("Autofirma configurada correctamente".to_owned()),
+            Err(error) => messages.push(error),
+        }
+    }
+    let ready = messages.len() == 1 && messages[0] == "Autofirma configurada correctamente";
     Ok(DevelopmentConfigTestResult { ready, messages })
 }
 
@@ -433,16 +465,25 @@ pub fn add_pkcs12_token(
     id: String,
     label: String,
     path: String,
-    password_env: String,
+    password: String,
+    remember_password: bool,
+    password_env: Option<String>,
 ) -> Result<Vec<Pkcs12TokenView>, String> {
     let token = Pkcs12TokenConfig {
         id: id.trim().to_owned(),
         label: label.trim().to_owned(),
         path: path.trim().to_owned(),
-        password_env: password_env.trim().to_owned(),
+        password_env: password_env.unwrap_or_default().trim().to_owned(),
+        remember_password,
+        local_password: remember_password
+            .then_some(password)
+            .filter(|password| !password.is_empty()),
     };
-    if token.id.is_empty() || token.path.is_empty() || token.password_env.is_empty() {
-        return Err("id, archivo y password_env son obligatorios".to_owned());
+    if token.id.is_empty() || token.path.is_empty() {
+        return Err("id y archivo son obligatorios".to_owned());
+    }
+    if token.local_password.is_none() && token.password_env.is_empty() {
+        return Err("Ingrese contraseña o una variable de entorno compatible".to_owned());
     }
 
     let mut config = current_config(&state)?;
@@ -1171,6 +1212,12 @@ fn development_config_view(config: &AppConfig) -> DevelopmentConfigView {
         auto_sign: config.development.auto_sign,
         default_identity_id: config.development.default_identity_id.clone(),
         pin_env: config.development.pin_env.clone(),
+        remember_pin: config.development.remember_pin,
+        has_local_pin: config
+            .development
+            .local_pin
+            .as_deref()
+            .is_some_and(|pin| !pin.is_empty()),
         fallback_to_modal: config.development.fallback_to_modal,
         pin_env_defined: std::env::var(&config.development.pin_env).is_ok(),
     }
@@ -1183,10 +1230,42 @@ fn pkcs12_token_view(token: &Pkcs12TokenConfig) -> Pkcs12TokenView {
         label: token.label.clone(),
         path: token.path.clone(),
         password_env: token.password_env.clone(),
+        remember_password: token.remember_password,
+        has_local_password: token
+            .local_password
+            .as_deref()
+            .is_some_and(|password| !password.is_empty()),
         path_exists: Path::new(&token.path).exists(),
-        password_env_defined: std::env::var(&token.password_env).is_ok(),
+        password_env_defined: !token.password_env.is_empty() && std::env::var(&token.password_env).is_ok(),
         identity,
     }
+}
+
+fn test_development_signature(
+    state: &State<'_, AppState>,
+    config: &AppConfig,
+    pin: String,
+) -> Result<(), String> {
+    let identity_id = config.development.default_identity_id.trim();
+    if identity_id.is_empty() {
+        return Err("Seleccione una identidad para autofirma".to_owned());
+    }
+    let identity = resolve_identity_for_signing(state, config, identity_id)?;
+    let cache = state.token_certificate_cache().clone();
+    jws::sign_payload_base64_with_cache(
+        config,
+        b"firmapache-autofirma-test",
+        ApproveSigningSessionInput {
+            slot_id: identity.slot_id,
+            certificate_id: identity.certificate_id,
+            pin,
+            identity_id: Some(identity.identity_id),
+            provider: Some(identity.provider),
+        },
+        &cache,
+    )
+    .map(|_| ())
+    .map_err(|error| format!("Error probando autofirma: {error}"))
 }
 
 fn validate_virtual_token_input(input: &GenerateVirtualTokenP12Input) -> Result<(), String> {

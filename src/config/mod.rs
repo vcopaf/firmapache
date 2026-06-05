@@ -78,6 +78,8 @@ pub struct DevelopmentConfig {
     pub default_identity_id: String,
     #[serde(default = "default_development_pin_env")]
     pub pin_env: String,
+    pub remember_pin: bool,
+    pub local_pin: Option<String>,
     pub fallback_to_modal: bool,
     pub pkcs12_tokens: Vec<Pkcs12TokenConfig>,
 }
@@ -89,6 +91,8 @@ impl Default for DevelopmentConfig {
             auto_sign: false,
             default_identity_id: String::new(),
             pin_env: default_development_pin_env(),
+            remember_pin: false,
+            local_pin: None,
             fallback_to_modal: true,
             pkcs12_tokens: Vec::new(),
         }
@@ -102,6 +106,8 @@ pub struct Pkcs12TokenConfig {
     pub label: String,
     pub path: String,
     pub password_env: String,
+    pub remember_password: bool,
+    pub local_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -283,6 +289,12 @@ impl AppConfig {
             if let Some(pin_env) = development.pin_env {
                 config.development.pin_env = pin_env;
             }
+            if let Some(remember_pin) = development.remember_pin {
+                config.development.remember_pin = remember_pin;
+            }
+            if let Some(local_pin) = development.local_pin {
+                config.development.local_pin = (!local_pin.is_empty()).then_some(local_pin);
+            }
             if let Some(fallback_to_modal) = development.fallback_to_modal {
                 config.development.fallback_to_modal = fallback_to_modal;
             }
@@ -419,6 +431,8 @@ pub struct DevelopmentConfigUpdate {
     pub auto_sign: Option<bool>,
     pub default_identity_id: Option<String>,
     pub pin_env: Option<String>,
+    pub remember_pin: Option<bool>,
+    pub local_pin: Option<String>,
     pub fallback_to_modal: Option<bool>,
     pub pkcs12_tokens: Option<Vec<Pkcs12TokenConfig>>,
 }

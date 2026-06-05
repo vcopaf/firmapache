@@ -425,6 +425,18 @@ select {
   width: 100%;
 }
 
+.password-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.password-toggle {
+  min-width: 92px;
+  padding-inline: 12px;
+}
+
 code {
   font-family: "Cascadia Code", "SFMono-Regular", monospace;
 }

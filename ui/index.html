@@ -154,7 +154,7 @@
         <button id="test-token" class="secondary">Probar driver / token</button>
         <button id="refresh-token-cache" class="secondary">Actualizar tokens/certificados</button>
       </div>
-      <p class="quiet">El PIN solo se solicita al aprobar una firma y no se almacena.</p>
+      <p class="quiet">El PIN de firma normal solo se solicita al aprobar una firma y no se almacena. El modo desarrollo puede recordarlo localmente si usted lo activa.</p>
       <dl class="summary cache-summary">
         <div><dt>Cache</dt><dd id="cache-status">Cargando tokens y certificados...</dd></div>
         <div><dt>Ultima carga</dt><dd id="cache-loaded-at">-</dd></div>
@@ -170,12 +170,12 @@
         <h2>Desarrollo</h2>
         <span id="development-section-status" class="quiet">Herramientas internas</span>
       </div>
-      <h3>Modo desarrollo</h3>
+      <h3>Autofirma</h3>
       <p class="modal-error">Modo desarrollo permite firmar automáticamente sin confirmación visual. No usar en producción.</p>
       <div class="development-grid">
         <label class="toggle-row" for="development-enabled">
           <input id="development-enabled" type="checkbox">
-          <span>Activar modo desarrollo</span>
+          <span>Activar autofirma</span>
         </label>
         <label class="toggle-row" for="development-auto-sign">
           <input id="development-auto-sign" type="checkbox">
@@ -186,21 +186,29 @@
           <span>Si falla autofirma, abrir modal interactivo</span>
         </label>
       </div>
-      <label for="development-identity">Identidad predeterminada desarrollo</label>
+      <label for="development-identity">Identidad</label>
       <select id="development-identity"></select>
-      <label for="development-pin-env">Variable de entorno PIN</label>
-      <input id="development-pin-env" type="text" placeholder="FIRMAPACHE_DEV_PIN">
+      <label for="development-pin">PIN / Contraseña</label>
+      <div class="password-row">
+        <input id="development-pin" type="password" autocomplete="off" placeholder="PIN o contraseña de la identidad">
+        <button class="secondary password-toggle" type="button" data-toggle-password="development-pin">Mostrar</button>
+      </div>
+      <label class="toggle-row" for="development-remember-pin">
+        <input id="development-remember-pin" type="checkbox">
+        <span>Recordar PIN localmente</span>
+      </label>
+      <p id="development-pin-warning" class="modal-error hidden">⚠ El PIN se almacenará localmente en este equipo. No utilizar esta opción en equipos compartidos.</p>
       <dl class="summary server-summary">
         <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
       </dl>
       <div class="button-row">
-        <button id="save-development-config" class="secondary">Guardar modo desarrollo</button>
-        <button id="test-development-config" class="secondary">Probar configuración</button>
+        <button id="save-development-config" class="secondary">Guardar autofirma</button>
+        <button id="test-development-config" class="secondary">Probar autofirma</button>
       </div>
       <p id="development-message" class="quiet"></p>
 
       <h3>Tokens virtuales P12/PFX</h3>
-      <p class="quiet">Solo para desarrollo. No se guarda la contraseña; se lee desde una variable de entorno.</p>
+      <p class="quiet">Solo para desarrollo. Al importar o crear, el token queda registrado y sus identidades se actualizan automaticamente.</p>
       <div class="pkcs12-grid">
         <div>
           <label for="pkcs12-id">ID</label>
@@ -211,10 +219,17 @@
           <input id="pkcs12-label" type="text" placeholder="Token virtual QA">
         </div>
         <div>
-          <label for="pkcs12-password-env">Variable contraseña</label>
-          <input id="pkcs12-password-env" type="text" placeholder="FIRMAPACHE_DEV_P12_PASSWORD">
+          <label for="pkcs12-password">Contraseña</label>
+          <div class="password-row">
+            <input id="pkcs12-password" type="password" autocomplete="off" placeholder="Contraseña del P12/PFX">
+            <button class="secondary password-toggle" type="button" data-toggle-password="pkcs12-password">Mostrar</button>
+          </div>
         </div>
       </div>
+      <label class="toggle-row" for="pkcs12-remember-password">
+        <input id="pkcs12-remember-password" type="checkbox" checked>
+        <span>Recordar contraseña localmente</span>
+      </label>
       <label for="pkcs12-path">Archivo .p12/.pfx</label>
       <div class="path-row">
         <input id="pkcs12-path" type="text" readonly placeholder="Seleccione un archivo .p12 o .pfx">
@@ -255,11 +270,17 @@
       <div class="pkcs12-grid">
         <div>
           <label for="create-p12-password">Contraseña</label>
-          <input id="create-p12-password" type="password" autocomplete="off">
+          <div class="password-row">
+            <input id="create-p12-password" type="password" autocomplete="off">
+            <button class="secondary password-toggle" type="button" data-toggle-password="create-p12-password">Mostrar</button>
+          </div>
         </div>
         <div>
           <label for="create-p12-password-confirm">Confirmar contraseña</label>
-          <input id="create-p12-password-confirm" type="password" autocomplete="off">
+          <div class="password-row">
+            <input id="create-p12-password-confirm" type="password" autocomplete="off">
+            <button class="secondary password-toggle" type="button" data-toggle-password="create-p12-password-confirm">Mostrar</button>
+          </div>
         </div>
         <div>
           <label for="create-p12-output">Ruta de guardado</label>
@@ -271,6 +292,8 @@
         <button id="generate-p12-token" class="secondary">Crear token virtual</button>
       </div>
       <div id="pkcs12-tokens" class="list empty">Sin tokens virtuales.</div>
+      <h3>Seguridad</h3>
+      <p class="quiet">El almacenamiento local de PIN/contraseñas existe solo para comodidad de desarrollo. No se recomienda en equipos compartidos.</p>
     </section>
 
     <section class="card tokens-card" data-section="identidades">
@@ -315,7 +338,10 @@
           <button id="manual-clear-default-identity" class="secondary" type="button">Quitar predeterminado</button>
         </div>
         <label for="manual-pin">PIN del token</label>
-        <input id="manual-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+        <div class="password-row">
+          <input id="manual-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+          <button class="secondary password-toggle" type="button" data-toggle-password="manual-pin">Mostrar</button>
+        </div>
       </div>
 
       <div id="manual-pdf-panel" class="hidden">
@@ -414,7 +440,10 @@
           <button id="modal-clear-default-identity" class="secondary" type="button">Quitar predeterminado</button>
         </div>
         <label for="modal-pin">PIN del token</label>
-        <input id="modal-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+        <div class="password-row">
+          <input id="modal-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
+          <button class="secondary password-toggle" type="button" data-toggle-password="modal-pin">Mostrar</button>
+        </div>
       </div>
       <p id="modal-sign-error" class="modal-error hidden" role="alert"></p>
       <p class="quiet">El PIN se usa solo para esta aprobacion. No se guarda ni se envia al endpoint publico <code>POST /sign</code>.</p>

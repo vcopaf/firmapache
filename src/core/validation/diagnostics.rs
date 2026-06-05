@@ -25,6 +25,8 @@ pub struct DiagnosticsReport {
     pub development_default_identity_id: Option<String>,
     pub development_pin_env: String,
     pub development_pin_env_defined: bool,
+    pub development_remember_pin: bool,
+    pub development_has_local_pin: bool,
     pub configured_pkcs11_library_path: Option<String>,
     pub detected_pkcs11_library_path: Option<String>,
     pub driver_found: bool,
@@ -79,6 +81,8 @@ pub struct DiagnosticPkcs12Token {
     pub path_exists: bool,
     pub password_env: String,
     pub password_env_defined: bool,
+    pub remember_password: bool,
+    pub has_local_password: bool,
     pub certificate_readable: bool,
     pub subject: Option<String>,
     pub issuer: Option<String>,
@@ -140,6 +144,12 @@ pub fn run_diagnostics(
         .then(|| config.development.default_identity_id.clone()),
         development_pin_env: config.development.pin_env.clone(),
         development_pin_env_defined: env::var(&config.development.pin_env).is_ok(),
+        development_remember_pin: config.development.remember_pin,
+        development_has_local_pin: config
+            .development
+            .local_pin
+            .as_deref()
+            .is_some_and(|pin| !pin.is_empty()),
         configured_pkcs11_library_path: config.pkcs11.library_path.clone(),
         detected_pkcs11_library_path: library.path,
         driver_found: library.found,
@@ -215,7 +225,13 @@ pub fn run_diagnostics(
                     path: token.path.clone(),
                     path_exists: Path::new(&token.path).exists(),
                     password_env: token.password_env.clone(),
-                    password_env_defined: env::var(&token.password_env).is_ok(),
+                    password_env_defined: !token.password_env.is_empty()
+                        && env::var(&token.password_env).is_ok(),
+                    remember_password: token.remember_password,
+                    has_local_password: token
+                        .local_password
+                        .as_deref()
+                        .is_some_and(|password| !password.is_empty()),
                     certificate_readable: identity.is_some(),
                     subject: identity
                         .as_ref()

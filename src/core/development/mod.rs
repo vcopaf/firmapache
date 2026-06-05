@@ -73,28 +73,7 @@ fn try_auto_sign_inner(
 
     let prepared = compatible::prepare_sign_request(request)?;
     let identity = resolve_development_identity(cache, config, identity_id)?;
-    let secret_env = if identity.provider == "pkcs12" {
-        identity
-            .password_env
-            .as_deref()
-            .ok_or(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound)?
-    } else {
-        config.development.pin_env.trim()
-    };
-    let pin = env::var(secret_env).map_err(|_| {
-        if identity.provider == "pkcs12" {
-            DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound
-        } else {
-            DevelopmentError::PinEnvironmentVariableNotFound
-        }
-    })?;
-    if pin.is_empty() {
-        return if identity.provider == "pkcs12" {
-            Err(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound)
-        } else {
-            Err(DevelopmentError::PinEnvironmentVariableNotFound)
-        };
-    }
+    let pin = development_pin(config, &identity)?;
 
     session_manager::sign_prepared_files(
         config,
@@ -110,6 +89,41 @@ fn try_auto_sign_inner(
         },
     )
     .map_err(DevelopmentError::AutoSignFailed)
+}
+
+fn development_pin(
+    config: &AppConfig,
+    identity: &identity::ResolvedSigningIdentity,
+) -> Result<String, DevelopmentError> {
+    if config.development.remember_pin {
+        if let Some(pin) = config
+            .development
+            .local_pin
+            .as_deref()
+            .filter(|pin| !pin.is_empty())
+        {
+            return Ok(pin.to_owned());
+        }
+    }
+
+    let secret_env = if identity.provider == "pkcs12" {
+        identity
+            .password_env
+            .as_deref()
+            .ok_or(DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound)?
+    } else {
+        config.development.pin_env.trim()
+    };
+    env::var(secret_env)
+        .ok()
+        .filter(|pin| !pin.is_empty())
+        .ok_or_else(|| {
+            if identity.provider == "pkcs12" {
+                DevelopmentError::Pkcs12PasswordEnvironmentVariableNotFound
+            } else {
+                DevelopmentError::PinEnvironmentVariableNotFound
+            }
+        })
 }
 
 fn resolve_development_identity(
