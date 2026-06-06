@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=FirMapache
+Comment=Firma digital local para JSON/JWS y PDF/PAdES
+Exec=firmapache
+Icon=firmapache
+Terminal=false
+Type=Application
+Categories=Utility;Security;Office;
+StartupNotify=true

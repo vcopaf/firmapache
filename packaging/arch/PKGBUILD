@@ -1,0 +1,55 @@
+# Maintainer: Vladimir Copa Fabian <vcopafabian@gmail.com>
+
+pkgname=firmapache
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Firma digital local para JSON/JWS y PDF/PAdES"
+arch=('x86_64')
+url="https://github.com/vcopaf/firmapache"
+license=('GPL-3.0-or-later')
+depends=(
+  'webkit2gtk-4.1'
+  'libayatana-appindicator'
+  'openssl'
+  'pcsclite'
+  'ccid'
+  'opensc'
+)
+makedepends=(
+  'rust'
+  'cargo'
+  'nodejs'
+  'npm'
+  'pkgconf'
+)
+options=('!lto')
+
+_srcroot="${startdir}/../.."
+
+build() {
+  cd "${_srcroot}"
+  cargo build --release --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol
+}
+
+package() {
+  cd "${_srcroot}"
+
+  install -Dm755 src-tauri/target/release/firmapache-desktop \
+    "${pkgdir}/usr/bin/firmapache"
+
+  install -Dm644 packaging/arch/firmapache.desktop \
+    "${pkgdir}/usr/share/applications/FirMapache.desktop"
+
+  install -Dm644 src-tauri/icons/32x32.png \
+    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/firmapache.png"
+  install -Dm644 src-tauri/icons/64x64.png \
+    "${pkgdir}/usr/share/icons/hicolor/64x64/apps/firmapache.png"
+  install -Dm644 src-tauri/icons/128x128.png \
+    "${pkgdir}/usr/share/icons/hicolor/128x128/apps/firmapache.png"
+  install -Dm644 src-tauri/icons/icon.png \
+    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/firmapache.png"
+
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/firmapache/README.md"
+  install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/firmapache/CHANGELOG.md"
+  install -Dm644 SECURITY.md "${pkgdir}/usr/share/doc/firmapache/SECURITY.md"
+}

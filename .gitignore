@@ -5,6 +5,8 @@ src-tauri/target/
 *.AppImage
 *.deb
 *.rpm
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
 SHA256SUMS
 *.p12
 *.pfx
@@ -12,3 +14,5 @@ SHA256SUMS
 *_firmado.pdf
 *-firmado.pdf
 firmados_*.zip
+packaging/arch/pkg/
+packaging/arch/src/

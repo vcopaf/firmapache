@@ -1,0 +1,21 @@
+pkgbase = firmapache
+	pkgdesc = Firma digital local para JSON/JWS y PDF/PAdES
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/vcopaf/firmapache
+	arch = x86_64
+	license = GPL-3.0-or-later
+	makedepends = rust
+	makedepends = cargo
+	makedepends = nodejs
+	makedepends = npm
+	makedepends = pkgconf
+	depends = webkit2gtk-4.1
+	depends = libayatana-appindicator
+	depends = openssl
+	depends = pcsclite
+	depends = ccid
+	depends = opensc
+	options = !lto
+
+pkgname = firmapache
