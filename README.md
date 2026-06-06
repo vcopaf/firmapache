@@ -36,7 +36,7 @@ publico de `POST /sign`.
 - [Características](#características)
 - [Capturas](#capturas)
 - [Requisitos](#requisitos)
-- [Instalación y ejecución](#instalación-y-ejecución)
+- [Instalación](#instalación)
 - [Configuración](#configuración)
 - [Interfaz Tauri](#interfaz-tauri)
 - [Firma manual](#firma-manual)
@@ -202,7 +202,67 @@ Al cargar un archivo creado por una version anterior sin `server.https`, el
 antiguo puerto por defecto `4856` se migra automaticamente a `4637`; puertos
 personalizados se conservan.
 
-## Instalación y ejecución
+## Instalación
+
+### AppImage
+
+Descargue el artefacto `FirMapache_0.1.0_amd64.AppImage`, marque permisos de
+ejecucion y arranque la aplicacion:
+
+```bash
+chmod +x FirMapache_0.1.0_amd64.AppImage
+./FirMapache_0.1.0_amd64.AppImage
+```
+
+### Debian/Ubuntu
+
+Instale el paquete `.deb`:
+
+```bash
+sudo apt install ./FirMapache_0.1.0_amd64.deb
+```
+
+Dependencias runtime recomendadas:
+
+```bash
+sudo apt install pcscd pcsc-tools opensc libpcsclite1 openssl
+```
+
+Para compilar desde fuente en Debian/Ubuntu:
+
+```bash
+sudo apt install build-essential pkg-config libssl-dev libpcsclite-dev \
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+```
+
+### Arch Linux
+
+Por ahora se recomienda usar el AppImage para instalacion simple. Dependencias
+runtime recomendadas:
+
+```bash
+sudo pacman -S --needed pcsc-tools pcsclite ccid opensc openssl
+```
+
+Para compilar desde fuente en Arch Linux:
+
+```bash
+sudo pacman -S --needed base-devel rustup pkgconf openssl pcsclite ccid opensc \
+  webkit2gtk-4.1 libayatana-appindicator
+```
+
+### Driver Feitian ePass2003
+
+FirMapache no empaqueta drivers propietarios. Para ePass2003 puede ser
+necesario instalar el driver Feitian y configurar una de estas rutas:
+
+```text
+/usr/lib/libcastle.so.1.0.0
+/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0
+/usr/lib/ePass2003_adsib/redist/libcastle.so.1.0.0
+```
+
+### Ejecución desde fuente
 
 ```bash
 cargo run

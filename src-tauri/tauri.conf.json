@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FirMapache",
   "version": "0.1.0",
-  "identifier": "bo.gob.agetic.firmapache",
+  "identifier": "com.vcopaf.firmapache",
   "build": {
     "frontendDist": "../ui"
   },
@@ -23,13 +23,40 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": [
+      "appimage",
+      "deb"
+    ],
+    "publisher": "Vladimir Copa Fabian",
+    "homepage": "https://github.com/vcopaf/firmapache",
+    "category": "Utility",
+    "shortDescription": "Firma digital local para JSON/JWS y PDF/PAdES",
+    "longDescription": "FirMapache es una aplicacion local de firma digital para JSON/JWS y PDF/PAdES con soporte PKCS#11 y PKCS#12.",
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "deb": {
+        "depends": [
+          "libpcsclite1",
+          "pcscd",
+          "opensc",
+          "openssl"
+        ],
+        "section": "utils",
+        "priority": "optional",
+        "desktopTemplate": "desktop/FirMapache.desktop"
+      }
+    }
   }
 }

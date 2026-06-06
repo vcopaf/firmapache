@@ -1,3 +1,14 @@
 /target
+src-tauri/target/
 .env
 *.log
+*.AppImage
+*.deb
+*.rpm
+SHA256SUMS
+*.p12
+*.pfx
+*.jws
+*_firmado.pdf
+*-firmado.pdf
+firmados_*.zip
