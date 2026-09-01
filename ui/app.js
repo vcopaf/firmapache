@@ -72,6 +72,15 @@ function empty(element, text) {
   element.textContent = text;
 }
 
+function emptyWithAction(element, text, label, action) {
+  element.className = "list empty actionable-empty";
+  element.replaceChildren();
+  const message = document.createElement("span");
+  message.textContent = text;
+  element.appendChild(message);
+  element.appendChild(button(label, "secondary", action));
+}
+
 function item(title, details) {
   const article = document.createElement("article");
   article.className = "item";
@@ -600,7 +609,6 @@ async function addPkcs12Token() {
   document.getElementById("pkcs12-password").value = "";
   document.getElementById("development-message").textContent =
     "✓ Token importado ✓ Identidad registrada";
-  await maybeSetImportedTokenAsDefault(id);
 }
 
 async function generateP12Token() {
@@ -669,7 +677,6 @@ async function generateP12Token() {
     if (message) {
       message.textContent = `✓ Token virtual creado y registrado: ${response.path || outputPath}`;
     }
-    await maybeSetIdentityAsDefault(response.identity_id);
   } finally {
     document.getElementById("generate-p12-token").disabled = false;
     document.getElementById("create-p12-password").value = "";
@@ -824,7 +831,11 @@ function renderTokens() {
     return;
   }
   if (!tokens.length) {
-    empty(container, certificatesLoaded ? "No se detectaron slots." : "Cargando tokens...");
+    if (certificatesLoaded) {
+      emptyWithAction(container, "No se detectó un token. Conéctelo y actualice la detección.", "Actualizar tokens", () => run(refreshTokenCertificateCache));
+    } else {
+      empty(container, "Cargando tokens...");
+    }
     return;
   }
   showItems(container, tokens.map((token) => item(
@@ -847,7 +858,11 @@ function renderCertificates() {
     return;
   }
   if (!certificates.length) {
-    empty(container, certificatesLoaded ? "No se encontraron certificados." : "Cargando certificados...");
+    if (certificatesLoaded) {
+      emptyWithAction(container, "No se encontró una identidad utilizable. Revise el token o el driver.", "Actualizar identidades", () => run(refreshTokenCertificateCache));
+    } else {
+      empty(container, "Cargando certificados...");
+    }
     return;
   }
   showItems(container, certificates.map((certificate) => item(
@@ -902,7 +917,7 @@ function identityCard(identity) {
   if (usedByAutoSign) {
     badges.appendChild(identityBadge("✓ Utilizada por autofirma", "active"));
   } else if (identity.is_default) {
-    badges.appendChild(identityBadge("✓ Identidad activa", "active"));
+    badges.appendChild(identityBadge("Última utilizada", "active"));
   }
   if (identity.provider === "pkcs12") {
     badges.appendChild(identityBadge("PKCS#12", "dev"));
@@ -1188,6 +1203,7 @@ async function resolveSigningSession(action, session) {
           identityId: approval.identityId,
           pin: approval.pin,
         });
+        await rememberLastSigningIdentity(approval.identityId);
         setSigningProgress("Completando firma...", true);
         clearPin();
         clearSigningForm();
@@ -1257,6 +1273,7 @@ async function loadSessions() {
 
   if (!pending.length) {
     clearSigningForm();
+    renderSigningSessionQueue([]);
     return;
   }
 
@@ -1268,6 +1285,33 @@ async function loadSessions() {
   if (!activeSigningSession || activeSigningSession.id !== nextSession.id) {
     await showSigningSession(nextSession);
   }
+  renderSigningSessionQueue(pending, nextSession.id);
+}
+
+function renderSigningSessionQueue(sessions, activeSessionId = null) {
+  const queue = document.getElementById("signing-session-queue");
+  if (!queue) {
+    return;
+  }
+  queue.replaceChildren();
+  queue.classList.toggle("hidden", sessions.length < 2);
+  if (sessions.length < 2) {
+    return;
+  }
+  const label = document.createElement("span");
+  label.textContent = `${sessions.length} solicitudes pendientes`;
+  queue.appendChild(label);
+  sessions.forEach((session, index) => {
+    const selector = button(`Solicitud ${index + 1}`, session.id === activeSessionId ? "active" : "secondary", () => {
+      run(async () => {
+        await invoke("show_signing_window", { sessionId: session.id });
+        await showSigningSession(session);
+        renderSigningSessionQueue(sessions, session.id);
+      });
+    });
+    selector.setAttribute("aria-pressed", String(session.id === activeSessionId));
+    queue.appendChild(selector);
+  });
 }
 
 async function openSigningWindow(sessionId = null) {
@@ -1515,6 +1559,9 @@ async function signManualFile() {
     }
     const successCount = manualResults.filter((result) => result.ok).length;
     const errorCount = manualResults.length - successCount;
+    if (successCount) {
+      await rememberLastSigningIdentity(input.identityId);
+    }
     document.getElementById("manual-sign-message").textContent =
       outputPath
         ? `Resultado: ${successCount} archivos firmados, ${errorCount} con error. Guardado: ${outputPath}`
@@ -1744,6 +1791,20 @@ function updateManualState() {
   pinInput.disabled = manualSigningInProgress || !needsCredentials;
   selectButton.disabled = manualSigningInProgress;
   document.getElementById("manual-clear-files").disabled = manualSigningInProgress || manualFiles.length === 0;
+  updateManualSteps(supportedCount, Boolean(identityId && !selectedOption?.disabled), Boolean(pin));
+}
+
+function updateManualSteps(supportedCount, hasIdentity, hasPin) {
+  const states = [
+    ["manual-step-files", supportedCount > 0, supportedCount === 0],
+    ["manual-step-identity", hasIdentity && hasPin, supportedCount > 0 && !(hasIdentity && hasPin)],
+    ["manual-step-confirm", manualResults.some((result) => result.ok), supportedCount > 0 && hasIdentity && hasPin],
+  ];
+  states.forEach(([id, complete, active]) => {
+    const step = document.getElementById(id);
+    step.classList.toggle("complete", complete);
+    step.classList.toggle("active", active);
+  });
 }
 
 function updatePinLabels(selectId, inputId) {
@@ -1763,54 +1824,15 @@ function updatePinLabels(selectId, inputId) {
   }
 }
 
-async function setSelectedDefaultIdentity(selectId) {
-  const select = document.getElementById(selectId);
-  const identityId = select.value;
-  const selectedOption = select.options[select.selectedIndex];
-  if (!identityId || selectedOption?.disabled) {
-    showError("Seleccione una identidad de firma para marcarla como predeterminada");
-    return;
+async function rememberLastSigningIdentity(identityId) {
+  // This only preselects the last successful identity; PINs are never persisted.
+  try {
+    signingIdentities = await invoke("set_default_signing_identity", { identityId });
+    populateSigningIdentities();
+    renderCertificates();
+  } catch {
+    // A completed signature must not fail because this convenience preference cannot be saved.
   }
-  signingIdentities = await invoke("set_default_signing_identity", { identityId });
-  populateSigningIdentities();
-  renderCertificates();
-  if (windowMode === "main") {
-    setAppStatus("Identidad predeterminada actualizada", "active");
-  }
-}
-
-async function clearDefaultIdentity() {
-  signingIdentities = await invoke("clear_default_signing_identity");
-  populateSigningIdentities();
-  renderCertificates();
-  if (windowMode === "main") {
-    setAppStatus("Identidad predeterminada eliminada", "active");
-  }
-}
-
-async function maybeSetImportedTokenAsDefault(tokenId) {
-  const identity = signingIdentities.find((item) => item.virtual_token_id === tokenId && item.is_available);
-  if (identity) {
-    await maybeSetIdentityAsDefault(identity.identity_id);
-  }
-}
-
-async function maybeSetIdentityAsDefault(identityId) {
-  if (!identityId) {
-    return;
-  }
-  const shouldUse = window.confirm("¿Desea usar esta identidad como predeterminada?");
-  if (!shouldUse) {
-    return;
-  }
-  signingIdentities = await invoke("set_default_signing_identity", { identityId });
-  populateSigningIdentities();
-  renderCertificates();
-  if (developmentConfig) {
-    developmentConfig.default_identity_id = identityId;
-    populateDevelopmentIdentities();
-  }
-  setAppStatus("Identidad predeterminada actualizada", "active");
 }
 
 function togglePasswordVisibility(inputId) {
@@ -2132,8 +2154,6 @@ function bindEvents() {
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
     document.getElementById("manual-clear-files").addEventListener("click", clearManualFiles);
     document.getElementById("manual-sign-file").addEventListener("click", () => run(signManualFile));
-    document.getElementById("manual-set-default-identity").addEventListener("click", () => run(() => setSelectedDefaultIdentity("manual-certificate")));
-    document.getElementById("manual-clear-default-identity").addEventListener("click", () => run(clearDefaultIdentity));
     document.getElementById("validate-select-jws").addEventListener("click", () => run(selectAndValidateJws));
     document.getElementById("validate-select-pdf").addEventListener("click", () => run(selectAndValidatePdf));
     document.getElementById("run-diagnostics").addEventListener("click", () => run(runSystemDiagnostics));
@@ -2162,8 +2182,6 @@ function bindEvents() {
     clearSigningError();
     updateApprovalState();
   });
-  document.getElementById("modal-set-default-identity").addEventListener("click", () => run(() => setSelectedDefaultIdentity("modal-certificate")));
-  document.getElementById("modal-clear-default-identity").addEventListener("click", () => run(clearDefaultIdentity));
   document.getElementById("modal-pin").addEventListener("input", () => {
     clearSigningError();
     updateApprovalState();

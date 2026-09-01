@@ -18,11 +18,14 @@
       </div>
       <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Colapsar menu">☰</button>
       <nav class="sidebar-nav">
+        <span class="nav-group-label">Operar</span>
         <button class="nav-button active" type="button" data-section-target="inicio"><span>⌂</span><strong>Inicio</strong></button>
         <button class="nav-button" type="button" data-section-target="firmar"><span>✎</span><strong>Firmar</strong></button>
         <button class="nav-button" type="button" data-section-target="solicitudes"><span>◷</span><strong>Solicitudes</strong></button>
+        <span class="nav-group-label">Administrar</span>
         <button class="nav-button" type="button" data-section-target="identidades"><span>▣</span><strong>Identidades</strong></button>
         <button class="nav-button" type="button" data-section-target="validacion"><span>✓</span><strong>Validacion</strong></button>
+        <span class="nav-group-label">Avanzado</span>
         <button class="nav-button" type="button" data-section-target="configuracion"><span>⌘</span><strong>Configuracion</strong></button>
         <button class="nav-button" type="button" data-section-target="diagnostico"><span>!</span><strong>Diagnostico</strong></button>
         <button class="nav-button" type="button" data-section-target="acerca"><span>i</span><strong>Acerca de</strong></button>
@@ -367,6 +370,13 @@
         <span id="manual-sign-message" class="quiet"></span>
       </div>
       <p class="quiet manual-intro">Seleccione uno o varios archivos. FirMapache detecta el tipo y el formato de firma correspondiente automaticamente.</p>
+      <ol class="workflow-steps" aria-label="Pasos para firmar">
+        <li id="manual-step-files" class="active"><span>1</span><strong>Archivos</strong><small>Seleccione y revise</small></li>
+        <li id="manual-step-identity"><span>2</span><strong>Identidad</strong><small>Elija certificado y PIN</small></li>
+        <li id="manual-step-confirm"><span>3</span><strong>Firmar</strong><small>Confirme y guarde</small></li>
+      </ol>
+      <section class="workflow-panel" aria-labelledby="manual-step-files-title">
+        <h3 id="manual-step-files-title">1. Seleccione los archivos</h3>
       <div class="button-row">
         <button id="manual-select-file" class="secondary">Seleccionar archivos</button>
         <button id="manual-clear-files" class="secondary" disabled>Limpiar</button>
@@ -378,20 +388,19 @@
         <div><dt>No soportados</dt><dd id="manual-unsupported-count">0</dd></div>
         <div><dt>Estado validacion</dt><dd id="manual-validation-status">Sin archivos.</dd></div>
       </dl>
+      </section>
 
-      <div id="manual-json-panel" class="modal-form hidden">
+      <section id="manual-json-panel" class="modal-form workflow-panel hidden" aria-labelledby="manual-step-identity-title">
+        <h3 id="manual-step-identity-title">2. Elija la identidad y autorice</h3>
         <label for="manual-certificate">Certificado para firmar</label>
         <select id="manual-certificate"></select>
-        <div class="button-row identity-actions">
-          <button id="manual-set-default-identity" class="secondary" type="button">Usar como predeterminado</button>
-          <button id="manual-clear-default-identity" class="secondary" type="button">Quitar predeterminado</button>
-        </div>
+        <p class="field-help">Se preselecciona la última identidad usada correctamente. Puede cambiarla para esta firma.</p>
         <label for="manual-pin">PIN del token</label>
         <div class="password-row">
           <input id="manual-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
           <button class="password-toggle" type="button" data-toggle-password="manual-pin" aria-label="Mostrar PIN">👁</button>
         </div>
-      </div>
+      </section>
 
       <div id="manual-pdf-panel" class="hidden">
         <div class="signing-progress hidden" id="manual-pdf-progress">
@@ -411,9 +420,9 @@
         <span class="spinner"></span>
         <span id="manual-sign-progress-text">Firmando archivo... no retire el token</span>
       </div>
-      <div id="manual-results" class="manual-results hidden"></div>
+      <div id="manual-results" class="manual-results hidden" aria-live="polite"></div>
       <div class="modal-actions">
-        <button id="manual-sign-file" disabled>Firmar</button>
+        <button id="manual-sign-file" disabled>Firmar archivos</button>
       </div>
     </section>
 
@@ -502,6 +511,7 @@
         <p class="eyebrow">Revise antes de autorizar</p>
         <p id="modal-signing-context">La autofirma está desactivada.</p>
       </div>
+      <div id="signing-session-queue" class="signing-session-queue hidden" aria-label="Solicitudes pendientes"></div>
       <dl class="modal-summary">
         <div><dt>ID de sesion</dt><dd id="modal-session-id">-</dd></div>
         <div><dt>Recibida</dt><dd id="modal-created-at">-</dd></div>
@@ -514,10 +524,7 @@
       <div class="modal-form">
         <label for="modal-certificate">Certificado para firmar</label>
         <select id="modal-certificate"></select>
-        <div class="button-row identity-actions">
-          <button id="modal-set-default-identity" class="secondary" type="button">Usar como predeterminado</button>
-          <button id="modal-clear-default-identity" class="secondary" type="button">Quitar predeterminado</button>
-        </div>
+        <p class="field-help">Se preselecciona la última identidad usada correctamente. Puede cambiarla para esta solicitud.</p>
         <label for="modal-pin">PIN del token</label>
         <div class="password-row">
           <input id="modal-pin" type="password" autocomplete="off" placeholder="Ingrese el PIN para esta firma">
