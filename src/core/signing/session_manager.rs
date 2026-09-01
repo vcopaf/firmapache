@@ -357,4 +357,20 @@ mod tests {
 
         assert!(matches!(result, SigningSessionResult::Expired));
     }
+
+    #[test]
+    fn prepared_files_include_review_metadata() {
+        let request = CompatibleSignRequest {
+            archivo: vec![CompatibleInputFile {
+                base64: "e30=".to_owned(),
+                name: "test.json".to_owned(),
+            }],
+            format: "jws".to_owned(),
+            language: None,
+        };
+
+        let prepared = compatible::prepare_sign_request(request).expect("valid request");
+        assert_eq!(prepared.files[0].size_bytes, 2);
+        assert_eq!(prepared.files[0].sha256.len(), 64);
+    }
 }

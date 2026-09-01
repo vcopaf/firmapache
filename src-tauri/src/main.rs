@@ -115,6 +115,7 @@ fn main() {
             commands::reject_signing_session,
             commands::show_main_window,
             commands::show_signing_window,
+            commands::selected_signing_session,
             commands::hide_signing_window,
             commands::restart_server,
         ])

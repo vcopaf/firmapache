@@ -27,6 +27,8 @@ pub struct SigningSession {
 pub struct SigningSessionFile {
     pub name: String,
     pub content_base64: String,
+    pub size_bytes: usize,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone)]

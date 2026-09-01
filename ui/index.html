@@ -37,11 +37,11 @@
       <header id="main-header" class="header">
         <div>
           <p class="eyebrow">FirMapache</p>
-          <h1 id="section-title">Inicio</h1>
+          <h1 id="section-title" tabindex="-1">Inicio</h1>
         </div>
         <div class="header-actions">
           <span id="global-mode-badge" class="mode-badge manual" title="Todas las firmas requieren aprobación manual.">Confirmación manual</span>
-          <button id="refresh-all" class="secondary">Actualizar</button>
+          <button id="refresh-all" class="secondary">Actualizar estado</button>
         </div>
       </header>
 
@@ -59,11 +59,19 @@
             </div>
             <span id="dashboard-status-badge" class="badge pending">Consultando</span>
           </div>
-          <div class="dashboard-grid">
-            <article class="metric-card">
-              <span>URL local</span>
-              <strong id="dashboard-url">-</strong>
-            </article>
+          <div class="readiness-panel" aria-live="polite">
+            <div><span class="readiness-label">Servicio local</span><strong id="dashboard-url">-</strong></div>
+            <div><span class="readiness-label">Identidad para firmar</span><strong id="dashboard-default-identity">Buscando identidad...</strong></div>
+            <div><span class="readiness-label">Solicitudes pendientes</span><strong id="dashboard-pending">0</strong></div>
+          </div>
+          <div class="quick-actions primary-actions">
+            <button id="quick-sign-file" type="button">Firmar archivos</button>
+            <button id="quick-open-sessions" class="secondary" type="button">Revisar solicitudes</button>
+            <button id="quick-refresh-tokens" class="text-button" type="button">Actualizar identidades</button>
+          </div>
+          <details class="dashboard-details">
+            <summary>Ver estado técnico</summary>
+            <div class="dashboard-grid">
             <article class="metric-card">
               <span>Driver</span>
               <strong id="dashboard-provider">-</strong>
@@ -77,10 +85,6 @@
               <strong id="dashboard-cert-count">0</strong>
             </article>
             <article class="metric-card">
-              <span>Solicitudes pendientes</span>
-              <strong id="dashboard-pending">0</strong>
-            </article>
-            <article class="metric-card">
               <span>Comportamiento de firma</span>
               <strong id="dashboard-dev-mode">-</strong>
             </article>
@@ -92,17 +96,12 @@
               <span>Canal</span>
               <strong id="dashboard-release-channel">stable</strong>
             </article>
-          </div>
+            </div>
           <dl class="summary dashboard-summary">
-            <div class="wide"><dt>Identidad predeterminada</dt><dd id="dashboard-default-identity">-</dd></div>
             <div><dt>Build date</dt><dd id="dashboard-build-date">-</dd></div>
             <div><dt>Commit</dt><dd id="dashboard-git-commit">-</dd></div>
           </dl>
-          <div class="quick-actions">
-            <button id="quick-sign-file" type="button">Firmar archivo</button>
-            <button id="quick-open-sessions" class="secondary" type="button">Ver solicitudes</button>
-            <button id="quick-refresh-tokens" class="secondary" type="button">Actualizar tokens</button>
-          </div>
+          </details>
         </section>
 
         <section id="signing-summary-card" class="card signing-summary-card manual hidden" data-section="inicio">
@@ -169,9 +168,9 @@
         <div class="wide"><dt>URL actual</dt><dd id="server-current-url">-</dd></div>
       </dl>
       <p id="server-warning" class="modal-error hidden" role="alert"></p>
-      <p class="quiet">Los cambios de host, puerto o HTTPS requieren reiniciar el servidor local.</p>
-      <div class="button-row">
-        <button id="restart-server" class="secondary">Reiniciar servidor</button>
+       <p class="quiet">Los cambios se guardan primero. Reinicie el servicio para aplicarlos.</p>
+       <div class="button-row">
+         <button id="restart-server">Reiniciar y aplicar</button>
         <button id="test-server-status" class="secondary">Probar estado</button>
       </div>
 
@@ -199,7 +198,7 @@
 
     <section class="card signing-behavior-card" data-section="configuracion">
       <div class="card-title">
-        <h2>Firma</h2>
+        <h2>Firma avanzada</h2>
         <span id="development-section-status" class="quiet">Comportamiento de firma</span>
       </div>
       <div id="development-state-panel" class="state-panel manual">
@@ -226,11 +225,11 @@
             <small>Cada solicitud abre la ventana de firma y requiere aprobación.</small>
           </span>
         </label>
-        <label class="behavior-option" for="signing-behavior-autosign">
+        <label class="behavior-option risk-option" for="signing-behavior-autosign">
           <input id="signing-behavior-autosign" name="signing-behavior" type="radio" value="autosign">
           <span>
-            <strong>Autofirma</strong>
-            <small>Las solicitudes pueden firmarse automáticamente con la identidad configurada.</small>
+            <strong>Autofirma de desarrollo</strong>
+            <small>Firma sin aprobación visual. Solo para pruebas locales controladas.</small>
           </span>
         </label>
       </div>
@@ -251,17 +250,15 @@
           <div class="wide"><dt>Estado PIN</dt><dd id="development-pin-status">-</dd></div>
         </dl>
         <div class="button-row">
-          <button id="save-development-config" class="secondary">Guardar configuración de firma</button>
+          <button id="save-development-config">Aplicar configuración de desarrollo</button>
           <button id="test-development-config" class="secondary">Probar configuración</button>
         </div>
-      </div>
-      <div class="button-row">
-        <button id="save-signing-behavior" class="secondary">Guardar comportamiento</button>
       </div>
       <p id="development-message" class="quiet"></p>
     </section>
 
-    <section class="card virtual-tokens-card" data-section="identidades">
+    <section class="card virtual-tokens-card advanced-card" data-section="identidades">
+      <p class="eyebrow">Solo desarrollo</p>
       <h3>Tokens virtuales P12/PFX</h3>
       <p class="quiet">Al importar o crear, el token queda registrado y sus identidades se actualizan automaticamente.</p>
       <div class="pkcs12-grid">
@@ -282,7 +279,7 @@
         </div>
       </div>
       <label class="toggle-row" for="pkcs12-remember-password">
-        <input id="pkcs12-remember-password" type="checkbox" checked>
+          <input id="pkcs12-remember-password" type="checkbox">
         <span>Recordar contraseña localmente</span>
       </label>
       <label for="pkcs12-path">Archivo .p12/.pfx</label>
@@ -425,7 +422,7 @@
         <h2>Sesiones de firma</h2>
         <button id="reload-sessions" class="text-button">Recargar</button>
       </div>
-      <p class="quiet">Las solicitudes pendientes pueden aprobarse o rechazarse desde esta interfaz. No se muestra el contenido del archivo.</p>
+      <p class="quiet">Revise cada solicitud antes de firmar. FirMapache muestra nombre, tamaño y huella SHA-256; el contenido del archivo nunca se expone aquí.</p>
       <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
     </section>
 
@@ -501,14 +498,18 @@
         </div>
         <button id="close-sign-modal" class="close-button" aria-label="Cerrar solicitud">Cerrar</button>
       </div>
+      <div class="approval-intro">
+        <p class="eyebrow">Revise antes de autorizar</p>
+        <p id="modal-signing-context">La autofirma está desactivada.</p>
+      </div>
       <dl class="modal-summary">
-        <div class="wide"><dt>Motivo</dt><dd id="modal-signing-context">La autofirma está desactivada.</dd></div>
         <div><dt>ID de sesion</dt><dd id="modal-session-id">-</dd></div>
+        <div><dt>Recibida</dt><dd id="modal-created-at">-</dd></div>
         <div><dt>Formato</dt><dd id="modal-format">-</dd></div>
         <div><dt>Idioma</dt><dd id="modal-language">-</dd></div>
         <div><dt>Estado</dt><dd id="modal-status">pendiente</dd></div>
       </dl>
-      <h3>Archivos</h3>
+      <h3>Archivos y huellas</h3>
       <div id="modal-files" class="list"></div>
       <div class="modal-form">
         <label for="modal-certificate">Certificado para firmar</label>
@@ -530,13 +531,16 @@
         <span id="signing-progress-text">Firmando... no retire el token</span>
       </div>
       <div class="modal-actions">
-        <button id="modal-reject" class="danger">Rechazar</button>
-        <button id="modal-approve">Aprobar</button>
+        <button id="modal-reject" class="secondary danger-outline">Rechazar solicitud</button>
+        <button id="modal-approve">Revisar y firmar</button>
       </div>
     </section>
   </main>
 
-  <div id="error-banner" class="error-banner hidden" role="alert"></div>
+  <div id="error-banner" class="error-banner hidden" role="alert" aria-live="assertive">
+    <span id="error-banner-message"></span>
+    <button id="dismiss-error" type="button" aria-label="Cerrar mensaje">Cerrar</button>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

@@ -44,6 +44,7 @@ const BRAND_LOGO_PNG: &[u8] = include_bytes!("../icons/icon.png");
 pub struct DesktopState {
     server_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     last_restart_error: Mutex<Option<String>>,
+    selected_signing_session: Mutex<Option<String>>,
 }
 
 impl DesktopState {
@@ -51,6 +52,7 @@ impl DesktopState {
         Self {
             server_task: Mutex::new(None),
             last_restart_error: Mutex::new(None),
+            selected_signing_session: Mutex::new(None),
         }
     }
 
@@ -65,6 +67,19 @@ impl DesktopState {
             .lock()
             .ok()
             .and_then(|error| error.clone())
+    }
+
+    fn select_signing_session(&self, session_id: Option<String>) {
+        if let Ok(mut selected) = self.selected_signing_session.lock() {
+            *selected = session_id;
+        }
+    }
+
+    fn selected_signing_session(&self) -> Option<String> {
+        self.selected_signing_session
+            .lock()
+            .ok()
+            .and_then(|selected| selected.clone())
     }
 }
 
@@ -163,7 +178,8 @@ pub struct SigningSessionView {
 #[derive(Serialize)]
 pub struct SigningSessionFileView {
     name: String,
-    approximate_size_bytes: usize,
+    size_bytes: usize,
+    sha256: String,
 }
 
 #[derive(Serialize)]
@@ -1295,8 +1311,18 @@ pub fn show_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn show_signing_window(app: AppHandle) -> Result<(), String> {
+pub fn show_signing_window(
+    app: AppHandle,
+    desktop: State<'_, DesktopState>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    desktop.select_signing_session(session_id);
     show_signing_window_for_app(&app)
+}
+
+#[tauri::command]
+pub fn selected_signing_session(desktop: State<'_, DesktopState>) -> Option<String> {
+    desktop.selected_signing_session()
 }
 
 #[tauri::command]
@@ -1985,7 +2011,8 @@ fn session_view(session: SigningSession) -> SigningSessionView {
             .into_iter()
             .map(|file| SigningSessionFileView {
                 name: file.name,
-                approximate_size_bytes: approximate_decoded_size(&file.content_base64),
+                size_bytes: file.size_bytes,
+                sha256: file.sha256,
             })
             .collect(),
         format: session.format,
@@ -1993,20 +2020,6 @@ fn session_view(session: SigningSession) -> SigningSessionView {
         status: status_name(session.status),
         created_at: session.created_at.to_rfc3339(),
     }
-}
-
-fn approximate_decoded_size(content_base64: &str) -> usize {
-    let padding = content_base64
-        .as_bytes()
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'=')
-        .count();
-    content_base64
-        .len()
-        .saturating_mul(3)
-        .saturating_div(4)
-        .saturating_sub(padding)
 }
 
 fn status_name(status: SigningSessionStatus) -> &'static str {

@@ -1,4 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::models::compatible::{
@@ -58,6 +59,8 @@ pub fn prepare_sign_request(
                 return Err(CompatibleSignError::InvalidPdf);
             }
             Ok(SigningSessionFile {
+                size_bytes: contents.len(),
+                sha256: format!("{:x}", Sha256::digest(&contents)),
                 content_base64: STANDARD.encode(contents),
                 name: file.name,
             })

@@ -35,9 +35,19 @@ const sectionTitles = {
 
 function showError(error) {
   const banner = document.getElementById("error-banner");
-  banner.textContent = String(error);
+  document.getElementById("error-banner-message").textContent = friendlyError(error);
   banner.classList.remove("hidden");
-  window.setTimeout(() => banner.classList.add("hidden"), 6000);
+}
+
+function friendlyError(error) {
+  const message = String(error);
+  const translations = {
+    "Missing certificate selection": "Seleccione una identidad de firma.",
+    "Missing PIN": "Ingrese el PIN o contraseña de la identidad.",
+    "Signing request expired": "La solicitud de firma venció.",
+    "User cancelled signing operation": "La solicitud de firma fue rechazada.",
+  };
+  return translations[message] || message;
 }
 
 function setAppStatus(text, state = "pending") {
@@ -116,6 +126,11 @@ function serverUrl(server) {
   return `${scheme}://${host}:${server.port}/`;
 }
 
+function formatSessionTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("es-BO", { dateStyle: "medium", timeStyle: "short" });
+}
+
 async function loadBrandLogo() {
   const logo = await invoke("get_brand_logo_data_url");
   document.querySelectorAll(".brand-logo, .dashboard-logo, .signing-logo").forEach((image) => {
@@ -135,7 +150,9 @@ function showSection(section) {
   });
   document.querySelectorAll("[data-section-target]").forEach((buttonElement) => {
     buttonElement.classList.toggle("active", buttonElement.dataset.sectionTarget === section);
+    buttonElement.setAttribute("aria-current", buttonElement.dataset.sectionTarget === section ? "page" : "false");
   });
+  document.getElementById("section-title").focus({ preventScroll: true });
 }
 
 function currentDefaultIdentity() {
@@ -492,8 +509,8 @@ function readServerConfigInput() {
     warning.classList.remove("hidden");
     return null;
   }
-  if (host === "0.0.0.0") {
-    warning.textContent = "0.0.0.0 expone el firmador en la red. No recomendado.";
+  if (!isLocalHost(host)) {
+    warning.textContent = "Este host expone el firmador fuera de este equipo. Use solo una red controlada.";
     warning.classList.remove("hidden");
   }
   return { host, port, https };
@@ -502,15 +519,19 @@ function readServerConfigInput() {
 function updateServerWarning() {
   const host = document.getElementById("server-host").value.trim();
   const warning = document.getElementById("server-warning");
-  if (host === "0.0.0.0") {
-    warning.textContent = "0.0.0.0 expone el firmador en la red. No recomendado.";
+  if (host && !isLocalHost(host)) {
+    warning.textContent = "Este host expone el firmador fuera de este equipo. Use solo una red controlada.";
     warning.classList.remove("hidden");
     return;
   }
-  if (!warning.textContent || warning.textContent.includes("0.0.0.0")) {
+  if (!warning.textContent || warning.textContent.includes("expone el firmador")) {
     warning.textContent = "";
     warning.classList.add("hidden");
   }
+}
+
+function isLocalHost(host) {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 function renderDevelopmentConfig(development) {
@@ -697,7 +718,6 @@ function updateSigningBehaviorConfigVisibility() {
   }
   const autoSignSelected = document.getElementById("signing-behavior-autosign")?.checked || false;
   panel.classList.toggle("hidden", !autoSignSelected);
-  document.getElementById("save-signing-behavior")?.classList.toggle("hidden", autoSignSelected);
   document.querySelectorAll(".behavior-option").forEach((option) => {
     const input = option.querySelector("input");
     option.classList.toggle("selected", Boolean(input?.checked));
@@ -1110,6 +1130,7 @@ function clearSigningForm() {
   renderSigningWindowContext();
   document.getElementById("modal-files").replaceChildren();
   document.getElementById("modal-session-id").textContent = "-";
+  document.getElementById("modal-created-at").textContent = "-";
   document.getElementById("modal-format").textContent = "-";
   document.getElementById("modal-language").textContent = "-";
   document.getElementById("modal-status").textContent = "esperando";
@@ -1121,6 +1142,7 @@ async function showSigningSession(session) {
   activeSigningSession = session;
   renderSigningWindowContext();
   document.getElementById("modal-session-id").textContent = session.id;
+  document.getElementById("modal-created-at").textContent = formatSessionTime(session.created_at);
   document.getElementById("modal-format").textContent = humanSignFormat(session.format);
   document.getElementById("modal-language").textContent = session.language || "-";
   document.getElementById("modal-status").textContent = session.status;
@@ -1128,7 +1150,10 @@ async function showSigningSession(session) {
     session.format === "pdf" ? "Firmar PDF" : "Firmar JWS";
   showItems(document.getElementById("modal-files"), session.files.map((file) => item(
     file.name,
-    [`Tamano: ${approximateSize(file.approximate_size_bytes)}`],
+    [
+      `Tamaño: ${approximateSize(file.size_bytes)}`,
+      `SHA-256: ${file.sha256}`,
+    ],
   )));
   clearPin();
   clearSigningError();
@@ -1195,8 +1220,8 @@ function sessionItem(session) {
   const article = item(
     session.files.map((file) => file.name).join(", "),
     [
-      `ID: ${session.id}`,
-      `Formato: ${humanSignFormat(session.format)} - Idioma: ${session.language || "-"}`,
+      `Recibida: ${formatSessionTime(session.created_at)}`,
+      `Formato: ${humanSignFormat(session.format)} · Idioma: ${session.language || "-"}`,
       `Estado: ${session.status}`,
     ],
   );
@@ -1207,9 +1232,7 @@ function sessionItem(session) {
   const actions = document.createElement("div");
   actions.className = "item-actions";
   actions.append(
-    button("Ver solicitud", "secondary", () => run(() => openSigningWindow())),
-    button("Rechazar", "danger", () => run(() => resolveSigningSession("reject", session))),
-    button("Aprobar", "", () => run(() => openSigningWindow())),
+    button("Revisar y firmar", "", () => run(() => openSigningWindow(session.id))),
   );
   article.appendChild(actions);
   return article;
@@ -1229,7 +1252,6 @@ async function loadSessions() {
     }
     showItems(container, pending.map(sessionItem));
     setAppStatus("Esperando firma", "pending");
-    await openSigningWindow();
     return;
   }
 
@@ -1238,16 +1260,18 @@ async function loadSessions() {
     return;
   }
 
-  const nextSession = activeSigningSession
+  const selectedSessionId = await invoke("selected_signing_session");
+  const selectedSession = pending.find((session) => session.id === selectedSessionId);
+  const nextSession = selectedSession || (activeSigningSession
     ? pending.find((session) => session.id === activeSigningSession.id) || pending[0]
-    : pending[0];
+    : pending[0]);
   if (!activeSigningSession || activeSigningSession.id !== nextSession.id) {
     await showSigningSession(nextSession);
   }
 }
 
-async function openSigningWindow() {
-  await invoke("show_signing_window");
+async function openSigningWindow(sessionId = null) {
+  await invoke("show_signing_window", { sessionId });
 }
 
 async function closeSigningWindow() {
@@ -1354,12 +1378,12 @@ function selectedApprovalInput() {
   const selectedOption = certificate.options[certificate.selectedIndex];
   const pin = document.getElementById("modal-pin").value;
   if (!identityId || selectedOption?.disabled) {
-    showSigningError("Missing certificate selection");
+    showSigningError("Seleccione una identidad de firma.");
     updateApprovalState();
     return null;
   }
   if (!pin) {
-    showSigningError("Missing PIN");
+    showSigningError("Ingrese el PIN o contraseña de la identidad.");
     updateApprovalState();
     return null;
   }
@@ -1813,7 +1837,7 @@ function setManualProgress(active, text = "Firmando archivo... no retire el toke
 
 function showManualError(error) {
   const message = document.getElementById("manual-sign-error");
-  message.textContent = String(error);
+  message.textContent = friendlyError(error);
   message.classList.remove("hidden");
 }
 
@@ -2003,7 +2027,7 @@ function setSigningProgress(text, active) {
 
 function showSigningError(error) {
   const message = document.getElementById("modal-sign-error");
-  message.textContent = String(error);
+  message.textContent = friendlyError(error);
   message.classList.remove("hidden");
 }
 
@@ -2080,7 +2104,6 @@ function bindEvents() {
     });
     document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
     document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
-    document.getElementById("save-signing-behavior").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("save-development-config").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
     document.getElementById("signing-behavior-manual").addEventListener("change", () => {
@@ -2128,6 +2151,10 @@ function bindEvents() {
   document.querySelectorAll("[data-toggle-password]").forEach((toggle) => {
     toggle.addEventListener("mousedown", (event) => event.preventDefault());
     toggle.addEventListener("click", () => togglePasswordVisibility(toggle.dataset.togglePassword));
+  });
+
+  document.getElementById("dismiss-error").addEventListener("click", () => {
+    document.getElementById("error-banner").classList.add("hidden");
   });
 
   document.getElementById("close-sign-modal").addEventListener("click", () => run(closeSigningWindow));
