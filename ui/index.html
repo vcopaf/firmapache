@@ -19,16 +19,13 @@
       <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Colapsar menu">☰</button>
       <nav class="sidebar-nav">
         <span class="nav-group-label">Operar</span>
-        <button class="nav-button active" type="button" data-section-target="inicio"><span>⌂</span><strong>Inicio</strong></button>
-        <button class="nav-button" type="button" data-section-target="firmar"><span>✎</span><strong>Firmar</strong></button>
+        <button class="nav-button active" type="button" data-section-target="firmar"><span>✎</span><strong>Firmar</strong></button>
         <button class="nav-button" type="button" data-section-target="solicitudes"><span>◷</span><strong>Solicitudes</strong></button>
         <span class="nav-group-label">Administrar</span>
         <button class="nav-button" type="button" data-section-target="identidades"><span>▣</span><strong>Identidades</strong></button>
         <button class="nav-button" type="button" data-section-target="validacion"><span>✓</span><strong>Validacion</strong></button>
         <span class="nav-group-label">Avanzado</span>
-        <button class="nav-button" type="button" data-section-target="configuracion"><span>⌘</span><strong>Configuracion</strong></button>
-        <button class="nav-button" type="button" data-section-target="diagnostico"><span>!</span><strong>Diagnostico</strong></button>
-        <button class="nav-button" type="button" data-section-target="acerca"><span>i</span><strong>Acerca de</strong></button>
+        <button class="nav-button" type="button" data-section-target="avanzado"><span>⌘</span><strong>Avanzado</strong></button>
       </nav>
       <div class="sidebar-footer">
         <span id="sidebar-status-dot" class="status-dot pending"></span>
@@ -40,7 +37,7 @@
       <header id="main-header" class="header">
         <div>
           <p class="eyebrow">FirMapache</p>
-          <h1 id="section-title" tabindex="-1">Inicio</h1>
+          <h1 id="section-title" tabindex="-1">Firmar</h1>
         </div>
         <div class="header-actions">
           <span id="global-mode-badge" class="mode-badge manual" title="Todas las firmas requieren aprobación manual.">Confirmación manual</span>
@@ -70,7 +67,6 @@
           <div class="quick-actions primary-actions">
             <button id="quick-sign-file" type="button">Firmar archivos</button>
             <button id="quick-open-sessions" class="secondary" type="button">Revisar solicitudes</button>
-            <button id="quick-refresh-tokens" class="text-button" type="button">Actualizar identidades</button>
           </div>
           <details class="dashboard-details">
             <summary>Ver estado técnico</summary>
@@ -130,7 +126,7 @@
       </div>
     </section>
 
-    <section class="card status-card" data-section="configuracion">
+    <section class="card status-card" data-section="avanzado">
       <div class="card-title">
         <h2>Estado</h2>
         <span id="service-indicator" class="badge pending">Consultando</span>
@@ -147,7 +143,7 @@
       </dl>
     </section>
 
-    <section class="card config-card" data-section="configuracion">
+    <section class="card config-card" data-section="avanzado">
       <div class="card-title">
         <h2>Configuracion</h2>
         <span id="save-message" class="quiet"></span>
@@ -199,7 +195,7 @@
 
     </section>
 
-    <section class="card signing-behavior-card" data-section="configuracion">
+    <section class="card signing-behavior-card" data-section="avanzado">
       <div class="card-title">
         <h2>Firma avanzada</h2>
         <span id="development-section-status" class="quiet">Comportamiento de firma</span>
@@ -260,7 +256,7 @@
       <p id="development-message" class="quiet"></p>
     </section>
 
-    <section class="card virtual-tokens-card advanced-card" data-section="identidades">
+    <section class="card virtual-tokens-card advanced-card" data-section="avanzado">
       <p class="eyebrow">Solo desarrollo</p>
       <h3>Tokens virtuales P12/PFX</h3>
       <p class="quiet">Al importar o crear, el token queda registrado y sus identidades se actualizan automaticamente.</p>
@@ -348,14 +344,6 @@
       <p class="quiet">El almacenamiento local de PIN/contraseñas existe solo para comodidad operativa. No se recomienda en equipos compartidos.</p>
     </section>
 
-    <section class="card tokens-card" data-section="identidades">
-      <div class="card-title">
-        <h2>Tokens</h2>
-        <button id="reload-tokens" class="text-button">Recargar</button>
-      </div>
-      <div id="tokens" class="list empty">Sin consulta.</div>
-    </section>
-
     <section class="card identities-card" data-section="identidades">
       <div class="card-title">
         <h2>Identidades de firma</h2>
@@ -369,7 +357,7 @@
         <h2>Firma manual</h2>
         <span id="manual-sign-message" class="quiet"></span>
       </div>
-      <p class="quiet manual-intro">Seleccione uno o varios archivos. FirMapache detecta el tipo y el formato de firma correspondiente automaticamente.</p>
+      <p class="quiet manual-intro">Seleccione los archivos que desea firmar.</p>
       <ol class="workflow-steps" aria-label="Pasos para firmar">
         <li id="manual-step-files" class="active"><span>1</span><strong>Archivos</strong><small>Seleccione y revise</small></li>
         <li id="manual-step-identity"><span>2</span><strong>Identidad</strong><small>Elija certificado y PIN</small></li>
@@ -382,12 +370,7 @@
         <button id="manual-clear-files" class="secondary" disabled>Limpiar</button>
       </div>
       <div id="manual-files" class="manual-files empty">Sin archivos seleccionados.</div>
-      <dl class="manual-file-summary">
-        <div><dt>Archivos</dt><dd id="manual-file-count">0 seleccionados</dd></div>
-        <div><dt>Soportados</dt><dd id="manual-supported-count">0</dd></div>
-        <div><dt>No soportados</dt><dd id="manual-unsupported-count">0</dd></div>
-        <div><dt>Estado validacion</dt><dd id="manual-validation-status">Sin archivos.</dd></div>
-      </dl>
+      <p id="manual-validation-status" class="manual-file-summary">Sin archivos seleccionados.</p>
       </section>
 
       <section id="manual-json-panel" class="modal-form workflow-panel hidden" aria-labelledby="manual-step-identity-title">
@@ -402,19 +385,7 @@
         </div>
       </section>
 
-      <div id="manual-pdf-panel" class="hidden">
-        <div class="signing-progress hidden" id="manual-pdf-progress">
-          <span class="spinner"></span>
-          <span>Inspeccionando PDF...</span>
-        </div>
-        <dl class="summary pdf-summary">
-          <div><dt>Header %PDF-</dt><dd id="manual-pdf-valid-header">-</dd></div>
-          <div><dt>Marcador %%EOF</dt><dd id="manual-pdf-has-eof">-</dd></div>
-          <div class="wide"><dt>PDF/PAdES</dt><dd>Se generara una firma detached ETSI.CAdES.detached.</dd></div>
-        </dl>
-      </div>
-
-      <p id="manual-unsupported-message" class="quiet hidden">Los archivos no soportados se omitirán. Actualmente solo se admiten JSON y PDF.</p>
+      <p id="manual-unsupported-message" class="quiet hidden">Algunos archivos necesitan atención antes de firmar.</p>
       <p id="manual-sign-error" class="modal-error hidden" role="alert"></p>
       <div class="signing-progress hidden" id="manual-sign-progress">
         <span class="spinner"></span>
@@ -431,7 +402,7 @@
         <h2>Sesiones de firma</h2>
         <button id="reload-sessions" class="text-button">Recargar</button>
       </div>
-      <p class="quiet">Revise cada solicitud antes de firmar. FirMapache muestra nombre, tamaño y huella SHA-256; el contenido del archivo nunca se expone aquí.</p>
+      <p class="quiet">Revise cada solicitud antes de firmar.</p>
       <div id="sessions" class="list empty">Sin sesiones pendientes.</div>
     </section>
 
@@ -455,7 +426,7 @@
 
     </section>
 
-    <section class="card diagnostics-card" data-section="diagnostico">
+    <section class="card diagnostics-card" data-section="avanzado">
       <div class="card-title">
         <h2>Diagnostico del sistema</h2>
         <span id="diagnostics-message" class="quiet">Sin ejecutar</span>
@@ -468,7 +439,7 @@
       <p class="quiet">El diagnostico no incluye PIN, claves privadas, firmas completas ni contenido de documentos.</p>
     </section>
 
-    <section class="card about-card" data-section="acerca">
+    <section class="card about-card" data-section="avanzado">
       <div class="card-title">
         <div class="dashboard-hero">
           <img class="dashboard-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="">
@@ -509,17 +480,20 @@
       </div>
       <div class="approval-intro">
         <p class="eyebrow">Revise antes de autorizar</p>
-        <p id="modal-signing-context">La autofirma está desactivada.</p>
+        <p id="modal-signing-context">Revise los archivos y confirme la identidad antes de firmar.</p>
       </div>
       <div id="signing-session-queue" class="signing-session-queue hidden" aria-label="Solicitudes pendientes"></div>
-      <dl class="modal-summary">
+      <details class="modal-security-details">
+        <summary>Ver más detalles</summary>
+        <dl class="modal-summary">
         <div><dt>ID de sesion</dt><dd id="modal-session-id">-</dd></div>
         <div><dt>Recibida</dt><dd id="modal-created-at">-</dd></div>
         <div><dt>Formato</dt><dd id="modal-format">-</dd></div>
         <div><dt>Idioma</dt><dd id="modal-language">-</dd></div>
         <div><dt>Estado</dt><dd id="modal-status">pendiente</dd></div>
-      </dl>
-      <h3>Archivos y huellas</h3>
+        </dl>
+      </details>
+      <h3>Archivos</h3>
       <div id="modal-files" class="list"></div>
       <div class="modal-form">
         <label for="modal-certificate">Certificado para firmar</label>
@@ -532,7 +506,7 @@
         </div>
       </div>
       <p id="modal-sign-error" class="modal-error hidden" role="alert"></p>
-      <p class="quiet">El PIN se usa solo para esta aprobacion. No se guarda ni se envia al endpoint publico <code>POST /sign</code>.</p>
+      <p class="quiet">El PIN se usa solo para esta firma y no se guarda.</p>
       <div class="signing-progress hidden" id="signing-progress">
         <span class="spinner"></span>
         <span id="signing-progress-text">Firmando... no retire el token</span>

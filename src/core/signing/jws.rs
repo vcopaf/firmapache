@@ -132,6 +132,62 @@ pub fn sign_payload_base64_with_cache(
     result
 }
 
+/// Signs multiple payloads while reusing the authenticated PKCS#11 session.
+/// PKCS#12 remains development-only and is signed sequentially.
+pub fn sign_payloads_base64_with_cache(
+    config: &AppConfig,
+    payloads: &[Vec<u8>],
+    input: ApproveSigningSessionInput,
+    cache: &TokenCertificateCache,
+) -> Result<Vec<String>, JwsSignError> {
+    validate_signing_input(&input)?;
+    let certificate_der_base64 = certificate_der_base64_for_input(config, cache, &input)?;
+    let header = JwsHeader {
+        alg: "RS256",
+        x5c: [&certificate_der_base64],
+    };
+    let encoded_header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header)?);
+    let signing_inputs = payloads
+        .iter()
+        .map(|payload| format!("{encoded_header}.{}", URL_SAFE_NO_PAD.encode(payload)).into_bytes())
+        .collect::<Vec<_>>();
+    let signatures = if input.provider.as_deref() == Some("pkcs12") {
+        let identity_id = input
+            .identity_id
+            .as_deref()
+            .ok_or(JwsSignError::MissingCertificateSelection)?;
+        signing_inputs
+            .iter()
+            .map(|signing_input| {
+                pkcs12::provider::sign_rs256(config, identity_id, &input.pin, signing_input)
+                    .map_err(JwsSignError::Pkcs12)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        provider::sign_rs256_batch(
+            config,
+            input.slot_id,
+            input.certificate_id,
+            input.pin,
+            &signing_inputs,
+        )
+        .map_err(JwsSignError::Pkcs11)?
+    };
+
+    Ok(signing_inputs
+        .iter()
+        .zip(signatures)
+        .map(|(signing_input, signature)| {
+            let compact = format!(
+                "{}.{}",
+                String::from_utf8_lossy(signing_input),
+                URL_SAFE_NO_PAD.encode(signature)
+            );
+            STANDARD.encode(compact.as_bytes())
+        })
+        .collect())
+}
+
 fn sign_payload_compact(
     config: &AppConfig,
     payload: &[u8],

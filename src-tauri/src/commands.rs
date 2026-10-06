@@ -29,6 +29,7 @@ use std::{
     io::Write,
     net::TcpListener,
     path::{Path, PathBuf},
+    process::Command,
     sync::Mutex,
     thread,
     time::{Duration, Instant},
@@ -227,6 +228,26 @@ pub struct ManualSignResponse {
 pub struct PdfSignResponse {
     pdf_base64: String,
     suggested_file_name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualBatchSignInput {
+    paths: Vec<String>,
+    identity_id: String,
+    pin: String,
+}
+
+#[derive(Serialize)]
+pub struct ManualBatchSignedFile {
+    input_name: String,
+    output_name: String,
+    data_base64: String,
+}
+
+#[derive(Serialize)]
+pub struct ManualBatchSignResponse {
+    files: Vec<ManualBatchSignedFile>,
 }
 
 #[derive(Serialize)]
@@ -911,6 +932,106 @@ pub async fn sign_pdf(
 }
 
 #[tauri::command]
+pub async fn sign_manual_batch(
+    state: State<'_, AppState>,
+    input: ManualBatchSignInput,
+) -> Result<ManualBatchSignResponse, String> {
+    if input.paths.is_empty() {
+        return Err("no hay archivos para firmar".to_owned());
+    }
+    if input.identity_id.trim().is_empty() {
+        return Err("identidad de firma no seleccionada".to_owned());
+    }
+    if input.pin.is_empty() {
+        return Err("PIN vacio".to_owned());
+    }
+
+    let config = current_config(&state)?;
+    let cache = state.token_certificate_cache().clone();
+    let identity = resolve_identity_for_signing(&state, &config, &input.identity_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = Instant::now();
+        let mut json_files = Vec::new();
+        let mut pdf_files = Vec::new();
+        for path in input.paths {
+            let path = PathBuf::from(path);
+            let format = detected_format(&path);
+            match format.as_str() {
+                "json" => {
+                    let payload = fs::read(&path)
+                        .map_err(|error| format!("error leyendo archivo: {error}"))?;
+                    json_files.push((path, payload));
+                }
+                "pdf" => {
+                    let bytes = fs::read(&path)
+                        .map_err(|error| format!("error leyendo PDF: {error}"))?;
+                    pdf_files.push((path, bytes));
+                }
+                _ => return Err(format!("archivo no compatible: {}", file_name(&path))),
+            }
+        }
+
+        let signing_input = ApproveSigningSessionInput {
+            slot_id: identity.slot_id,
+            certificate_id: identity.certificate_id,
+            pin: input.pin,
+            identity_id: Some(identity.identity_id),
+            provider: Some(identity.provider),
+        };
+        let mut files = Vec::with_capacity(json_files.len() + pdf_files.len());
+        if !json_files.is_empty() {
+            let payloads = json_files
+                .iter()
+                .map(|(_, payload)| payload.clone())
+                .collect::<Vec<_>>();
+            let signatures = jws::sign_payloads_base64_with_cache(
+                &config,
+                &payloads,
+                signing_input.clone(),
+                &cache,
+            )
+            .map_err(|error| format!("error firmando lote JWS: {error}"))?;
+            files.extend(json_files.into_iter().zip(signatures).map(|((path, _), data_base64)| {
+                ManualBatchSignedFile {
+                    input_name: file_name(&path),
+                    output_name: suggested_jws_file_name(&path),
+                    data_base64,
+                }
+            }));
+        }
+        if !pdf_files.is_empty() {
+            let pdf_inputs = pdf_files
+                .iter()
+                .map(|(path, bytes)| (file_name(path), bytes.clone()))
+                .collect::<Vec<_>>();
+            let signed_pdfs = pdf::signing::sign_pdf_bytes_batch(
+                &config,
+                &cache,
+                &pdf_inputs,
+                signing_input.clone(),
+            )
+            .map_err(|error| format!("error firmando PDF: {error}"))?;
+            files.extend(pdf_files.into_iter().zip(signed_pdfs).map(|((path, _), signed_pdf)| {
+                ManualBatchSignedFile {
+                    input_name: file_name(&path),
+                    output_name: suggested_signed_pdf_file_name(&path),
+                    data_base64: STANDARD.encode(signed_pdf),
+                }
+            }));
+        }
+        tracing::info!(
+            file_count = files.len(),
+            signing_step = "sign_manual_batch",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "manual signing batch completed"
+        );
+        Ok(ManualBatchSignResponse { files })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub async fn save_signed_file(
     app: AppHandle,
     jws_base64: String,
@@ -1055,6 +1176,30 @@ pub async fn save_manual_output_zip(
         path: zip_path.to_string_lossy().into_owned(),
         file_count: entry_names.len(),
     })
+}
+
+#[tauri::command]
+pub async fn open_manual_output(path: String, reveal: bool) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !path.is_file() {
+        return Err("el archivo firmado ya no está disponible".to_owned());
+    }
+    let target = if reveal {
+        path.parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "no se pudo determinar la carpeta del archivo".to_owned())?
+    } else {
+        path
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        Command::new("xdg-open")
+            .arg(&target)
+            .spawn()
+            .map_err(|error| format!("no se pudo abrir {}: {error}", target.display()))?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1971,9 +2116,9 @@ pub fn show_signing_window_for_app(app: &AppHandle) -> Result<(), String> {
                 WebviewUrl::App("index.html?window=signing".into()),
             )
             .title("Solicitud de firma - FirMapache")
-            .inner_size(620.0, 720.0)
-            .min_inner_size(520.0, 560.0)
-            .resizable(false)
+            .inner_size(680.0, 760.0)
+            .min_inner_size(480.0, 560.0)
+            .resizable(true)
             .always_on_top(true)
             .focused(true)
             .center()
@@ -2053,4 +2198,21 @@ fn token_certificate_cache_view(
         tokens: state.tokens,
         certificates: state.certificates,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ManualBatchSignInput;
+
+    #[test]
+    fn manual_batch_input_accepts_tauri_camel_case_payload() {
+        let input: ManualBatchSignInput = serde_json::from_str(
+            r#"{"paths":["/tmp/documento.pdf"],"identityId":"pkcs11:token:1:01","pin":"1234"}"#,
+        )
+        .expect("Tauri payload should deserialize");
+
+        assert_eq!(input.paths, ["/tmp/documento.pdf"]);
+        assert_eq!(input.identity_id, "pkcs11:token:1:01");
+        assert_eq!(input.pin, "1234");
+    }
 }

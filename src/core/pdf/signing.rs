@@ -28,6 +28,12 @@ struct SignatureOffsets {
     contents_end: usize,
 }
 
+struct PreparedPdfSignature {
+    prepared: Vec<u8>,
+    offsets: SignatureOffsets,
+    signed_attrs: Vec<u8>,
+}
+
 pub fn sign_pdf_file(
     config: &AppConfig,
     cache: &TokenCertificateCache,
@@ -100,6 +106,78 @@ pub fn sign_pdf_bytes(
     );
 
     Ok(prepared)
+}
+
+/// Signs PDF inputs under one PKCS#11 login. Preparation happens before the
+/// token is used, so invalid documents never consume a PIN attempt.
+pub fn sign_pdf_bytes_batch(
+    config: &AppConfig,
+    cache: &TokenCertificateCache,
+    files: &[(String, Vec<u8>)],
+    input: ApproveSigningSessionInput,
+) -> Result<Vec<Vec<u8>>, PdfError> {
+    validate_input(&input)?;
+    let certificate_der_base64 = jws::certificate_der_base64_for_input(config, cache, &input)?;
+    let certificate_der = STANDARD
+        .decode(certificate_der_base64.as_bytes())
+        .map_err(|_| PdfError::InvalidCertificateBase64)?;
+    let prepared_files = files
+        .iter()
+        .map(|(file_name, pdf_bytes)| prepare_pdf_signature(file_name, pdf_bytes, &certificate_der))
+        .collect::<Result<Vec<_>, _>>()?;
+    let signed_attrs = prepared_files
+        .iter()
+        .map(|prepared| prepared.signed_attrs.clone())
+        .collect::<Vec<_>>();
+    let signatures = if input.provider.as_deref() == Some("pkcs12") {
+        let identity_id = input
+            .identity_id
+            .as_deref()
+            .ok_or(JwsSignError::MissingCertificateSelection)?;
+        signed_attrs
+            .iter()
+            .map(|attrs| pkcs12::provider::sign_rs256(config, identity_id, &input.pin, attrs))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        provider::sign_rs256_batch(
+            config,
+            input.slot_id,
+            input.certificate_id,
+            input.pin,
+            &signed_attrs,
+        )?
+    };
+
+    prepared_files
+        .into_iter()
+        .zip(signatures)
+        .map(|(mut prepared, signature)| {
+            let cms =
+                cms::build_detached_cades(&certificate_der, &prepared.signed_attrs, &signature)?;
+            insert_cms_signature(&mut prepared.prepared, &prepared.offsets, &cms)?;
+            Ok(prepared.prepared)
+        })
+        .collect()
+}
+
+fn prepare_pdf_signature(
+    file_name: &str,
+    pdf_bytes: &[u8],
+    certificate_der: &[u8],
+) -> Result<PreparedPdfSignature, PdfError> {
+    let info = inspect_pdf_bytes(file_name.to_owned(), pdf_bytes.len() as u64, pdf_bytes);
+    if !info.valid_header || !info.has_eof_marker {
+        return Err(PdfError::InvalidPdf);
+    }
+    let mut prepared = prepare_pdf_for_signature(pdf_bytes)?;
+    let offsets = patch_byte_range(&mut prepared)?;
+    let content_digest = digest_byte_range(&prepared, &offsets);
+    let signed_attrs = cms::signed_attrs_der(&content_digest, certificate_der)?;
+    Ok(PreparedPdfSignature {
+        prepared,
+        offsets,
+        signed_attrs,
+    })
 }
 
 fn prepare_pdf_for_signature(source: &[u8]) -> Result<Vec<u8>, PdfError> {
@@ -459,12 +537,21 @@ mod tests {
             jws_validation::validate_jws_bytes(&jws_compact).expect("validate generated JWS");
         assert!(jws_report.valid, "JWS must validate as RS256");
 
+        let batch_jws = jws::sign_payloads_base64_with_cache(
+            &config,
+            &[br#"{"batch":1}"#.to_vec(), br#"{"batch":2}"#.to_vec()],
+            input.clone(),
+            &cache,
+        )
+        .expect("sign JWS batch with virtual PKCS#12");
+        assert_eq!(batch_jws.len(), 2);
+
         let signed_pdf = sign_pdf_bytes(
             &config,
             &cache,
             &minimal_pdf(),
             "virtual-token.pdf".to_owned(),
-            input,
+            input.clone(),
         )
         .expect("sign PDF with virtual PKCS#12");
         let pdf_report =
@@ -474,6 +561,23 @@ mod tests {
         assert!(pdf_report.filter_adobe_ppklite);
         assert!(pdf_report.subfilter_cades_detached);
         assert!(pdf_report.m_present);
+
+        let signed_batch = sign_pdf_bytes_batch(
+            &config,
+            &cache,
+            &[
+                ("batch-one.pdf".to_owned(), minimal_pdf()),
+                ("batch-two.pdf".to_owned(), minimal_pdf()),
+            ],
+            input.clone(),
+        )
+        .expect("sign PDF batch with virtual PKCS#12");
+        assert_eq!(signed_batch.len(), 2);
+        assert!(
+            pdf_validation::validate_pdf_bytes(&signed_batch[0])
+                .expect("validate batch PDF")
+                .contents_present
+        );
 
         let _ = sign_pkcs12_rs256(
             &config,

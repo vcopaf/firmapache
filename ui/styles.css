@@ -1061,6 +1061,12 @@ body[data-window="signing"] #signing-view {
   padding: 14px;
 }
 
+p.manual-file-summary {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .manual-file-summary div:first-child,
 .manual-file-summary div:last-child {
   grid-column: span 3;
@@ -1092,7 +1098,8 @@ body[data-window="signing"] #signing-view {
 }
 
 .manual-result-row {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 14px;
 }
 
 .manual-result-row.ok {
@@ -1101,6 +1108,60 @@ body[data-window="signing"] #signing-view {
 
 .manual-result-row.error {
   border-color: rgba(176, 65, 62, .45);
+}
+
+.manual-result-status {
+  align-items: center;
+  background: #dff3e8;
+  border-radius: 50%;
+  color: #256b49;
+  display: inline-flex;
+  font-weight: 800;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.manual-result-row.error .manual-result-status {
+  background: #f7dddd;
+  color: #8a2828;
+}
+
+.manual-result-body {
+  min-width: 0;
+}
+
+.manual-result-body small {
+  margin-top: 4px;
+}
+
+.result-location {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.result-location summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.result-location span {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-actions button {
+  font-size: 13px;
+  padding: 8px 10px;
+  white-space: nowrap;
 }
 
 .modal-form {
@@ -1225,7 +1286,8 @@ body[data-window="main"] #signing-view {
 
   .path-row,
   .button-row,
-  .modal-actions {
+  .modal-actions,
+  .result-actions {
     flex-direction: column;
   }
 
@@ -1236,6 +1298,15 @@ body[data-window="main"] #signing-view {
   .manual-file-summary div:first-child,
   .manual-file-summary div:last-child {
     grid-column: span 1;
+  }
+
+  .manual-result-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .result-actions {
+    grid-column: 2;
+    margin-top: 4px;
   }
 }
 
@@ -1371,6 +1442,34 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.modal-security-details,
+.approval-file-details {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.modal-security-details {
+  margin: 12px 0;
+}
+
+.modal-security-details summary,
+.approval-file-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.approval-file-details {
+  margin-top: 7px;
+}
+
+.approval-file-details span {
+  display: block;
+  font-family: "Cascadia Code", "SFMono-Regular", monospace;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
 .signing-view {
   background: var(--surface);
 }
@@ -1454,6 +1553,89 @@ a:focus-visible {
   .behavior-options,
   .modal-summary {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .sidebar {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .sidebar-brand {
+    padding: 0 4px;
+  }
+
+  .sidebar-toggle,
+  .sidebar-footer {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    gap: 6px;
+    grid-template-columns: none;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .nav-group-label {
+    display: none;
+  }
+
+  .nav-button {
+    flex: 0 0 auto;
+    padding: 9px 11px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .header-actions button {
+    flex: 0 0 auto;
+  }
+
+  .readiness-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .primary-actions > button,
+  .primary-actions > button:first-child {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .signing-view {
+    padding: 14px;
+  }
+
+  .modal-title,
+  .identity-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .modal-summary,
+  .workflow-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .signing-session-queue > span {
+    margin-right: 0;
+    width: 100%;
+  }
+
+  .modal-actions > button {
+    width: 100%;
   }
 }
 

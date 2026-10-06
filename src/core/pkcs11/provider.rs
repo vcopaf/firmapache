@@ -609,6 +609,92 @@ pub fn sign_rs256(
     }
 }
 
+/// Signs a batch under one PKCS#11 login. A login or provider failure aborts the
+/// remaining inputs, preventing repeated PIN attempts against the token.
+pub fn sign_rs256_batch(
+    config: &AppConfig,
+    slot_id: u64,
+    certificate_id: String,
+    pin: String,
+    signing_inputs: &[Vec<u8>],
+) -> Result<Vec<Vec<u8>>, ProviderError> {
+    let started = Instant::now();
+    let selected_certificate_id = parse_certificate_id(&certificate_id)?;
+    let auth_pin = AuthPin::new(pin);
+    let _access_guard = PKCS11_ACCESS
+        .lock()
+        .map_err(|_| ProviderError::AccessLock)?;
+    let library_info = detect_pkcs11_library(config)?;
+    let library_path = library_info.path.ok_or(ProviderError::LibraryNotFound)?;
+    let pkcs11 = Pkcs11::new(&library_path).map_err(|source| ProviderError::LibraryLoad {
+        path: library_path,
+        source,
+    })?;
+    pkcs11
+        .initialize(CInitializeArgs::OsThreads)
+        .map_err(ProviderError::Initialize)?;
+    let slot = pkcs11
+        .get_slots_with_token()
+        .map_err(ProviderError::ListTokens)?
+        .into_iter()
+        .find(|slot| slot.id() == slot_id)
+        .ok_or(ProviderError::SlotNotFound(slot_id))?;
+    let session = match pkcs11.open_rw_session(slot) {
+        Ok(session) => session,
+        Err(_) => pkcs11
+            .open_ro_session(slot)
+            .map_err(|source| ProviderError::OpenSession { slot_id, source })?,
+    };
+    session
+        .login(UserType::User, Some(&auth_pin))
+        .map_err(|_| ProviderError::LoginFailed)?;
+
+    let signing_result = (|| {
+        let private_key = find_private_key_for_certificate(&session, &selected_certificate_id)?;
+        signing_inputs
+            .iter()
+            .map(|signing_input| sign_rs256_with_session(&session, private_key, signing_input))
+            .collect::<Result<Vec<_>, _>>()
+    })();
+    let logout_result = session.logout().map_err(ProviderError::LogoutFailed);
+    match (signing_result, logout_result) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(signatures), Ok(())) => {
+            info!(
+                slot_id,
+                file_count = signatures.len(),
+                signing_step = "sign_rs256_batch",
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "PKCS#11 signing batch completed"
+            );
+            Ok(signatures)
+        }
+    }
+}
+
+fn sign_rs256_with_session(
+    session: &Session,
+    private_key: ObjectHandle,
+    signing_input_bytes: &[u8],
+) -> Result<Vec<u8>, ProviderError> {
+    match session.sign(&Mechanism::Sha256RsaPkcs, private_key, signing_input_bytes) {
+        Ok(signature) => Ok(signature),
+        Err(error) => {
+            warn!(
+                error = %error,
+                signing_step = "sign_rs256_batch",
+                mechanism = "CKM_SHA256_RSA_PKCS",
+                "PKCS#11 direct mechanism failed; trying DigestInfo fallback"
+            );
+            let digest_info = sha256_digest_info(signing_input_bytes);
+            session
+                .sign(&Mechanism::RsaPkcs, private_key, &digest_info)
+                .map_err(ProviderError::SignFailed)
+        }
+    }
+}
+
 fn find_private_key_for_certificate(
     session: &Session,
     certificate_id: &[u8],
