@@ -8,6 +8,7 @@ use cryptoki::{
     session::{Session, UserType},
     types::AuthPin,
 };
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tracing::{info, warn};
@@ -34,6 +35,16 @@ const COMMON_PKCS11_LIBRARY_PATHS: [&str; 5] = [
     "/usr/lib/opensc-pkcs11.so",
     "/usr/lib64/opensc-pkcs11.so",
 ];
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Pkcs11DriverCandidate {
+    pub path: String,
+    pub found: bool,
+    pub selected: bool,
+    pub token_detected: bool,
+    pub token_count: usize,
+    pub error: Option<String>,
+}
 
 // Some native PKCS#11 modules do not tolerate concurrent initialize/finalize cycles.
 static PKCS11_ACCESS: Mutex<()> = Mutex::new(());
@@ -188,6 +199,129 @@ pub fn detect_pkcs11_library(config: &AppConfig) -> Result<Pkcs11LibraryInfo, Pr
         path: None,
         source: None,
     })
+}
+
+pub fn detect_pkcs11_library_for_token(
+    config: &AppConfig,
+) -> Result<Pkcs11LibraryInfo, ProviderError> {
+    let candidates = candidate_library_paths(config)?;
+    let mut first_available = None;
+
+    for path in candidates {
+        if first_available.is_none() && Path::new(&path).is_file() {
+            first_available = Some(path.clone());
+        }
+        if !Path::new(&path).is_file() {
+            continue;
+        }
+
+        if list_tokens_with_library_path(&path)
+            .ok()
+            .is_some_and(|tokens| tokens.iter().any(|token| token.token_present))
+        {
+            return Ok(Pkcs11LibraryInfo {
+                found: true,
+                path: Some(path),
+                source: Some("probe".to_owned()),
+            });
+        }
+    }
+
+    first_available
+        .map(|path| Pkcs11LibraryInfo {
+            found: true,
+            path: Some(path),
+            source: Some("auto".to_owned()),
+        })
+        .ok_or(ProviderError::LibraryNotFound)
+}
+
+pub fn driver_candidates(config: &AppConfig) -> Result<Vec<Pkcs11DriverCandidate>, ProviderError> {
+    let selected_path = detect_pkcs11_library_for_token(config)?.path;
+    let paths = candidate_library_paths(config)?;
+    Ok(paths
+        .into_iter()
+        .map(|path| {
+            if !Path::new(&path).is_file() {
+                return Pkcs11DriverCandidate {
+                    path,
+                    found: false,
+                    selected: false,
+                    token_detected: false,
+                    token_count: 0,
+                    error: None,
+                };
+            }
+
+            match list_tokens_with_library_path(&path) {
+                Ok(tokens) => {
+                    let token_count = tokens.iter().filter(|token| token.token_present).count();
+                    Pkcs11DriverCandidate {
+                        selected: selected_path.as_deref() == Some(path.as_str()),
+                        path,
+                        found: true,
+                        token_detected: token_count > 0,
+                        token_count,
+                        error: None,
+                    }
+                }
+                Err(error) => Pkcs11DriverCandidate {
+                    selected: false,
+                    path,
+                    found: true,
+                    token_detected: false,
+                    token_count: 0,
+                    error: Some(error.to_string()),
+                },
+            }
+        })
+        .collect())
+}
+
+pub fn candidate_library_paths(config: &AppConfig) -> Result<Vec<String>, ProviderError> {
+    let env_path = env::var_os(PKCS11_LIBRARY_ENV)
+        .map(|path| path.to_string_lossy().into_owned())
+        .or_else(|| {
+            env::var_os(LEGACY_PKCS11_LIBRARY_ENV).map(|path| path.to_string_lossy().into_owned())
+        });
+    if let Some(path) = env_path {
+        if !Path::new(&path).is_file() {
+            return Err(ProviderError::InvalidEnvironmentPath(path));
+        }
+        return Ok(vec![path]);
+    }
+
+    let mut paths = Vec::new();
+    if let Some(path) = config.pkcs11.library_path.as_deref() {
+        paths.push(path.to_owned());
+    }
+    for path in COMMON_PKCS11_LIBRARY_PATHS {
+        if !paths.iter().any(|candidate| candidate == path) {
+            paths.push(path.to_owned());
+        }
+    }
+    for path in home_driver_paths() {
+        if !paths.iter().any(|candidate| candidate == &path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+fn home_driver_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        paths.push(
+            home.join("Compartido/driver/usr/lib/ePass2003-Linux-x64/redist/libcastle.so.1.0.0")
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    paths.push(
+        "/opt/jacobitus-escritorio/lib/app/controladores/x64/epass2003/2021/libcastle.so.1.0.0"
+            .to_owned(),
+    );
+    paths
 }
 
 pub fn list_tokens(config: &AppConfig) -> Result<Vec<TokenInfo>, ProviderError> {

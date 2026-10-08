@@ -203,7 +203,7 @@ pub fn run_diagnostics(config: &AppConfig, cache: &TokenCertificateCache) -> Dia
             .as_ref()
             .map(|snapshot| snapshot.cache_misses)
             .unwrap_or_default(),
-        token_count: tokens.len(),
+        token_count: tokens.iter().filter(|token| token.token_present).count(),
         certificate_count: certificates.len(),
         default_identity_id: (!config.signing.default_identity_id.trim().is_empty())
             .then(|| config.signing.default_identity_id.clone()),

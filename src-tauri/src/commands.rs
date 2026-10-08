@@ -298,6 +298,16 @@ pub struct TokenCertificateCacheView {
     certificate_count: usize,
 }
 
+#[derive(Serialize)]
+pub struct AutomaticPkcs11Configuration {
+    driver_path: String,
+    driver_source: Option<String>,
+    token_count: usize,
+    certificate_count: usize,
+    message: String,
+    cache: TokenCertificateCacheView,
+}
+
 #[tauri::command]
 pub fn get_brand_logo_data_url() -> String {
     format!("data:image/png;base64,{}", STANDARD.encode(BRAND_LOGO_PNG))
@@ -364,6 +374,76 @@ pub fn update_server_config(
 #[tauri::command]
 pub fn test_server_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
     get_status(state)
+}
+
+#[tauri::command]
+pub async fn configure_pkcs11_automatically(
+    state: State<'_, AppState>,
+) -> Result<AutomaticPkcs11Configuration, String> {
+    let mut config = current_config(&state)?;
+    let detected = tauri::async_runtime::spawn_blocking({
+        let config = config.clone();
+        move || provider::detect_pkcs11_library_for_token(&config)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
+    let driver_path = detected
+        .path
+        .clone()
+        .ok_or_else(|| "El driver detectado no tiene una ruta válida".to_owned())?;
+
+    config.pkcs11.library_path = Some(driver_path.clone());
+    config.save().map_err(|error| error.to_string())?;
+    state
+        .replace_config(config.clone())
+        .map_err(|error| error.to_string())?;
+
+    let cache = state.token_certificate_cache().clone();
+    let refreshed = tauri::async_runtime::spawn_blocking(move || {
+        cache.force_refresh_tokens_and_certificates(&config)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
+    let token_count = refreshed
+        .tokens
+        .iter()
+        .filter(|token| token.token_present)
+        .count();
+    let certificate_count = refreshed.certificates.len();
+    let message = if certificate_count > 0 {
+        format!("Token configurado correctamente. Certificados encontrados: {certificate_count}.")
+    } else if token_count > 0 {
+        "Token detectado, pero no se pudieron leer sus certificados.".to_owned()
+    } else {
+        "No se detectó un token en el driver seleccionado.".to_owned()
+    };
+
+    Ok(AutomaticPkcs11Configuration {
+        driver_path,
+        driver_source: detected.source,
+        token_count,
+        certificate_count,
+        message,
+        cache: token_certificate_cache_view(refreshed)?,
+    })
+}
+
+#[tauri::command]
+pub async fn list_pkcs11_drivers(
+    state: State<'_, AppState>,
+) -> Result<Vec<provider::Pkcs11DriverCandidate>, String> {
+    let config = current_config(&state)?;
+    tauri::async_runtime::spawn_blocking(move || provider::driver_candidates(&config))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_server_startup_error(desktop: State<'_, DesktopState>) -> Option<String> {
+    desktop.last_restart_error()
 }
 
 #[tauri::command]
@@ -963,8 +1043,8 @@ pub async fn sign_manual_batch(
                     json_files.push((path, payload));
                 }
                 "pdf" => {
-                    let bytes = fs::read(&path)
-                        .map_err(|error| format!("error leyendo PDF: {error}"))?;
+                    let bytes =
+                        fs::read(&path).map_err(|error| format!("error leyendo PDF: {error}"))?;
                     pdf_files.push((path, bytes));
                 }
                 _ => return Err(format!("archivo no compatible: {}", file_name(&path))),
@@ -991,13 +1071,16 @@ pub async fn sign_manual_batch(
                 &cache,
             )
             .map_err(|error| format!("error firmando lote JWS: {error}"))?;
-            files.extend(json_files.into_iter().zip(signatures).map(|((path, _), data_base64)| {
-                ManualBatchSignedFile {
-                    input_name: file_name(&path),
-                    output_name: suggested_jws_file_name(&path),
-                    data_base64,
-                }
-            }));
+            files.extend(
+                json_files
+                    .into_iter()
+                    .zip(signatures)
+                    .map(|((path, _), data_base64)| ManualBatchSignedFile {
+                        input_name: file_name(&path),
+                        output_name: suggested_jws_file_name(&path),
+                        data_base64,
+                    }),
+            );
         }
         if !pdf_files.is_empty() {
             let pdf_inputs = pdf_files
@@ -1011,13 +1094,16 @@ pub async fn sign_manual_batch(
                 signing_input.clone(),
             )
             .map_err(|error| format!("error firmando PDF: {error}"))?;
-            files.extend(pdf_files.into_iter().zip(signed_pdfs).map(|((path, _), signed_pdf)| {
-                ManualBatchSignedFile {
-                    input_name: file_name(&path),
-                    output_name: suggested_signed_pdf_file_name(&path),
-                    data_base64: STANDARD.encode(signed_pdf),
-                }
-            }));
+            files.extend(
+                pdf_files
+                    .into_iter()
+                    .zip(signed_pdfs)
+                    .map(|((path, _), signed_pdf)| ManualBatchSignedFile {
+                        input_name: file_name(&path),
+                        output_name: suggested_signed_pdf_file_name(&path),
+                        data_base64: STANDARD.encode(signed_pdf),
+                    }),
+            );
         }
         tracing::info!(
             file_count = files.len(),
@@ -1124,7 +1210,8 @@ pub async fn save_manual_output_file(
         return Err("carpeta destino no valida".to_owned());
     }
     let destination = unique_output_path(&directory, &suggested_file_name);
-    fs::write(&destination, decoded).map_err(|error| format!("error guardando archivo: {error}"))?;
+    fs::write(&destination, decoded)
+        .map_err(|error| format!("error guardando archivo: {error}"))?;
 
     Ok(ManualOutputSaveResponse {
         path: destination.to_string_lossy().into_owned(),
@@ -1149,10 +1236,10 @@ pub async fn save_manual_output_zip(
 
     let zip_name = format!("firmados_{}.zip", Local::now().format("%d-%m-%Y-%H:%M:%S"));
     let zip_path = unique_output_path(&directory, &zip_name);
-    let zip_file = fs::File::create(&zip_path).map_err(|error| format!("error creando ZIP: {error}"))?;
+    let zip_file =
+        fs::File::create(&zip_path).map_err(|error| format!("error creando ZIP: {error}"))?;
     let mut zip = ZipWriter::new(zip_file);
-    let options =
-        SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut entry_names = Vec::new();
 
     for file in files {
@@ -1551,7 +1638,8 @@ fn pkcs12_token_view(token: &Pkcs12TokenConfig) -> Pkcs12TokenView {
             .as_deref()
             .is_some_and(|password| !password.is_empty()),
         path_exists: Path::new(&token.path).exists(),
-        password_env_defined: !token.password_env.is_empty() && std::env::var(&token.password_env).is_ok(),
+        password_env_defined: !token.password_env.is_empty()
+            && std::env::var(&token.password_env).is_ok(),
         identity,
     }
 }
@@ -1877,11 +1965,39 @@ pub fn start_embedded_server(desktop: &DesktopState, state: AppState) -> Result<
 
 pub fn warm_token_certificate_cache(state: AppState) {
     tauri::async_runtime::spawn(async move {
-        let mut previous_fingerprint = state
-            .token_certificate_cache()
-            .snapshot()
-            .ok()
-            .and_then(|snapshot| snapshot.token_fingerprint);
+        let initial_fingerprint = match state.config() {
+            Ok(config) => {
+                let cache = state.token_certificate_cache().clone();
+                match tauri::async_runtime::spawn_blocking(move || {
+                    cache.force_refresh_tokens_and_certificates(&config)
+                })
+                .await
+                {
+                    Ok(Ok(snapshot)) => {
+                        tracing::info!(
+                            refresh_trigger = "startup",
+                            token_count = snapshot.tokens.len(),
+                            certificate_count = snapshot.certificates.len(),
+                            "initial token cache refresh completed"
+                        );
+                        snapshot.token_fingerprint
+                    }
+                    Ok(Err(error)) => {
+                        tracing::warn!(%error, refresh_trigger = "startup", "initial token cache refresh failed");
+                        None
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, refresh_trigger = "startup", "initial token cache task failed");
+                        None
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, refresh_trigger = "startup", "could not read configuration for initial token refresh");
+                None
+            }
+        };
+        let mut previous_fingerprint = initial_fingerprint;
 
         let state_for_watcher = state.clone();
         tauri::async_runtime::spawn(async move {
@@ -1891,7 +2007,11 @@ pub fn warm_token_certificate_cache(state: AppState) {
                     let _ = state_for_watcher
                         .token_certificate_cache()
                         .record_watcher_backend("pcsc", true);
-                    tracing::info!(watcher_started = true, watcher_backend = "pcsc", "token watcher active");
+                    tracing::info!(
+                        watcher_started = true,
+                        watcher_backend = "pcsc",
+                        "token watcher active"
+                    );
                     watcher
                 }
                 Ok(Err(error)) => {
@@ -1899,7 +2019,8 @@ pub fn warm_token_certificate_cache(state: AppState) {
                     let _ = state_for_watcher
                         .token_certificate_cache()
                         .record_watcher_backend("polling", true);
-                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint).await;
+                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint)
+                        .await;
                     return;
                 }
                 Err(error) => {
@@ -1907,58 +2028,55 @@ pub fn warm_token_certificate_cache(state: AppState) {
                     let _ = state_for_watcher
                         .token_certificate_cache()
                         .record_watcher_backend("polling", true);
-                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint).await;
+                    start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint)
+                        .await;
                     return;
                 }
             };
 
             loop {
-                let events =
-                    match tauri::async_runtime::spawn_blocking(move || watcher.wait_for_events())
-                        .await
-                    {
-                        Ok(Ok(events)) => events,
-                        Ok(Err(error)) => {
-                            tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher failed; switching to conservative fallback");
-                            let _ = state_for_watcher
-                                .token_certificate_cache()
-                                .record_watcher_backend("polling", true);
-                            start_conservative_fallback_watcher(
-                                state_for_watcher,
-                                previous_fingerprint,
-                            )
-                            .await;
-                            return;
-                        }
-                        Err(error) => {
-                            tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher task failed; switching to conservative fallback");
-                            let _ = state_for_watcher
-                                .token_certificate_cache()
-                                .record_watcher_backend("polling", true);
-                            start_conservative_fallback_watcher(
-                                state_for_watcher,
-                                previous_fingerprint,
-                            )
-                            .await;
-                            return;
-                        }
-                    };
-
-                watcher = match PcscTokenWatcher::new() {
-                    Ok(next) => next,
+                let (next_watcher, result) = match tauri::async_runtime::spawn_blocking(move || {
+                    let result = watcher.wait_for_events();
+                    (watcher, result)
+                })
+                .await
+                {
+                    Ok(result) => result,
                     Err(error) => {
-                        tracing::warn!(%error, watcher_backend = "pcsc", "could not rebuild PC/SC watcher; switching to conservative fallback");
+                        tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher task failed; switching to conservative fallback");
                         let _ = state_for_watcher
                             .token_certificate_cache()
                             .record_watcher_backend("polling", true);
-                        start_conservative_fallback_watcher(state_for_watcher, previous_fingerprint)
-                            .await;
+                        start_conservative_fallback_watcher(
+                            state_for_watcher,
+                            previous_fingerprint,
+                        )
+                        .await;
+                        return;
+                    }
+                };
+                watcher = next_watcher;
+                let events = match result {
+                    Ok(events) => events,
+                    Err(error) => {
+                        tracing::warn!(%error, watcher_backend = "pcsc", "PC/SC watcher failed; switching to conservative fallback");
+                        let _ = state_for_watcher
+                            .token_certificate_cache()
+                            .record_watcher_backend("polling", true);
+                        start_conservative_fallback_watcher(
+                            state_for_watcher,
+                            previous_fingerprint,
+                        )
+                        .await;
                         return;
                     }
                 };
 
                 if events.is_empty() {
-                    tracing::debug!(watcher_backend = "pcsc", "PC/SC watcher woke without actionable event");
+                    tracing::debug!(
+                        watcher_backend = "pcsc",
+                        "PC/SC watcher woke without actionable event"
+                    );
                     continue;
                 }
 
@@ -2180,7 +2298,7 @@ fn token_certificate_cache_view(
     state: firmapache::core::cache::TokenCertificateCacheState,
 ) -> Result<TokenCertificateCacheView, String> {
     Ok(TokenCertificateCacheView {
-        token_count: state.tokens.len(),
+        token_count: state.tokens.iter().filter(|token| token.token_present).count(),
         certificate_count: state.certificates.len(),
         loaded_at: state.loaded_at.map(|loaded_at| loaded_at.to_rfc3339()),
         expires_at: state.expires_at.map(|expires_at| expires_at.to_rfc3339()),

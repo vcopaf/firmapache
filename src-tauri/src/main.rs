@@ -16,7 +16,10 @@ fn main() {
             let config = AppConfig::load()?;
             let state = AppState::new(config);
             let desktop_state = commands::DesktopState::new();
-            commands::start_embedded_server(&desktop_state, state.clone())?;
+            if let Err(error) = commands::start_embedded_server(&desktop_state, state.clone()) {
+                desktop_state.set_last_restart_error(Some(error.clone()));
+                tracing::error!(%error, "could not initialize embedded local service");
+            }
             commands::warm_token_certificate_cache(state.clone());
             app.manage(state);
             app.manage(desktop_state);
@@ -71,6 +74,9 @@ fn main() {
             commands::get_server_config,
             commands::update_server_config,
             commands::test_server_status,
+            commands::configure_pkcs11_automatically,
+            commands::list_pkcs11_drivers,
+            commands::get_server_startup_error,
             commands::get_development_config,
             commands::update_development_config,
             commands::test_development_config,

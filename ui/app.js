@@ -21,6 +21,7 @@ let serviceStatus = null;
 let sessionsSnapshot = [];
 let activeSection = "firmar";
 let developmentLastTest = "Sin ejecutar";
+let tokenOperationInProgress = false;
 const windowMode = currentWindow.label === "signing" ? "signing" : "main";
 const sectionTitles = {
   inicio: "Inicio",
@@ -62,6 +63,42 @@ function setAppStatus(text, state = "pending") {
   if (sidebarText && sidebarDot) {
     sidebarText.textContent = text;
     sidebarDot.className = `status-dot ${state}`;
+  }
+}
+
+const tokenActionIds = [
+  "configure-pkcs11",
+  "scan-pkcs11-drivers",
+  "choose-library",
+  "save-config",
+  "test-token",
+  "refresh-token-cache",
+  "reload-certificates",
+];
+
+async function runTokenOperation(task) {
+  if (tokenOperationInProgress) {
+    return;
+  }
+  tokenOperationInProgress = true;
+  tokenActionIds
+    .map((id) => document.getElementById(id))
+    .filter(Boolean)
+    .forEach((element) => {
+      element.disabled = true;
+      element.setAttribute("aria-busy", "true");
+    });
+  try {
+    await task();
+  } finally {
+    tokenOperationInProgress = false;
+    tokenActionIds
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .forEach((element) => {
+        element.disabled = false;
+        element.removeAttribute("aria-busy");
+      });
   }
 }
 
@@ -381,8 +418,11 @@ function updateDashboard() {
 
 async function loadStatus() {
   setAppStatus("Iniciando servidor...");
-  const status = await invoke("test_server_status");
-  serviceStatus = status;
+  const [status, startupError] = await Promise.all([
+    invoke("test_server_status"),
+    invoke("get_server_startup_error"),
+  ]);
+  serviceStatus = { ...status, active: status.active && !startupError };
   document.getElementById("service-name").textContent = status.service;
   document.getElementById("service-version").textContent = status.version;
   document.getElementById("service-build-date").textContent = status.build_date || "-";
@@ -393,9 +433,14 @@ async function loadStatus() {
   document.getElementById("active-library-path").textContent =
     status.pkcs11_library_path || "No detectado";
   const indicator = document.getElementById("service-indicator");
-  indicator.textContent = status.active ? "Activo" : "No disponible";
-  indicator.className = `badge ${status.active ? "active" : "pending"}`;
-  setAppStatus("FirMapache operativo", "active");
+  indicator.textContent = serviceStatus.active ? "Activo" : "No disponible";
+  indicator.className = `badge ${serviceStatus.active ? "active" : "pending"}`;
+  if (startupError) {
+    setAppStatus("Servicio no inicializado", "error");
+    showError(`No se pudo inicializar el servicio local. ${startupError}`);
+  } else {
+    setAppStatus("FirMapache operativo", "active");
+  }
   renderAbout();
   updateDashboard();
 }
@@ -454,6 +499,63 @@ async function selectLibrary() {
   const selected = await invoke("select_pkcs11_library");
   if (selected) {
     document.getElementById("library-path").value = selected;
+  }
+}
+
+async function loadPkcs11Drivers() {
+  const container = document.getElementById("pkcs11-drivers");
+  if (!container) {
+    return;
+  }
+  empty(container, "Probando drivers PKCS#11...");
+  const candidates = await invoke("list_pkcs11_drivers");
+  if (!candidates.length) {
+    empty(container, "No se encontraron rutas de drivers conocidas.");
+    return;
+  }
+  showItems(container, candidates.map((candidate) => {
+    const details = [];
+    if (!candidate.found) {
+      details.push("No encontrado");
+    } else if (candidate.token_detected) {
+      details.push(`${candidate.token_count} token(s) detectado(s)`);
+    } else {
+      details.push("Driver disponible, sin token reconocido");
+    }
+    if (candidate.selected) {
+      details.push("Seleccionado automáticamente");
+    }
+    if (candidate.error) {
+      details.push(`Error: ${candidate.error}`);
+    }
+    return item(candidate.path, details);
+  }));
+}
+
+async function configurePkcs11Automatically() {
+  const buttonElement = document.getElementById("configure-pkcs11");
+  const messageElement = document.getElementById("pkcs11-config-message");
+  buttonElement.disabled = true;
+  messageElement.textContent = "Detectando driver, token y certificados...";
+  setAppStatus("Configurando token...");
+  try {
+    const result = await invoke("configure_pkcs11_automatically");
+    document.getElementById("library-path").value = result.driver_path;
+    document.getElementById("library-path-summary").textContent = result.driver_path;
+    document.getElementById("pkcs11-token-count").textContent = result.token_count;
+    document.getElementById("pkcs11-certificate-count").textContent = result.certificate_count;
+    config = await invoke("get_config");
+    applyTokenCertificateCache(result.cache);
+    await refreshSigningIdentities();
+    messageElement.textContent = result.message;
+    if (result.certificate_count > 0) {
+      setAppStatus("Token listo para firmar", "active");
+    } else {
+      setAppStatus("Token sin certificados utilizables", "error");
+      showError(result.message);
+    }
+  } finally {
+    buttonElement.disabled = false;
   }
 }
 
@@ -786,6 +888,11 @@ async function loadTokenCertificateCache() {
   if (!cache.loaded_at) {
     setAppStatus("Cargando tokens y certificados...", "pending");
     startCacheWarmupPoll();
+  } else if (cache.certificate_count > 0) {
+    const message = document.getElementById("pkcs11-config-message");
+    if (message) {
+      message.textContent = `Token listo. Certificados encontrados: ${cache.certificate_count}.`;
+    }
   }
 }
 
@@ -806,7 +913,7 @@ async function loadSigningIdentities() {
 }
 
 async function refreshSigningIdentities() {
-  signingIdentities = await invoke("refresh_signing_identities");
+  signingIdentities = await invoke("list_signing_identities");
   renderCertificates();
   populateSigningIdentities();
   renderSigningState();
@@ -817,6 +924,18 @@ function applyTokenCertificateCache(cache) {
   tokens = cache.tokens || [];
   certificates = cache.certificates || [];
   certificatesLoaded = Boolean(cache.loaded_at);
+  const librarySummary = document.getElementById("library-path-summary");
+  const tokenCount = document.getElementById("pkcs11-token-count");
+  const certificateCount = document.getElementById("pkcs11-certificate-count");
+  if (librarySummary) {
+    librarySummary.textContent = cache.pkcs11_library_path || "No configurado";
+  }
+  if (tokenCount) {
+    tokenCount.textContent = cache.token_count || 0;
+  }
+  if (certificateCount) {
+    certificateCount.textContent = cache.certificate_count || 0;
+  }
   renderTokenCertificateCache(cache);
   renderTokens();
   renderCertificates();
@@ -2081,8 +2200,10 @@ function bindEvents() {
     document.getElementById("refresh-all").addEventListener("click", () => run(async () => {
       await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
     }));
-    document.getElementById("choose-library").addEventListener("click", () => run(selectLibrary));
-    document.getElementById("save-config").addEventListener("click", () => run(saveConfig));
+    document.getElementById("choose-library").addEventListener("click", () => runTokenOperation(selectLibrary));
+    document.getElementById("configure-pkcs11").addEventListener("click", () => runTokenOperation(configurePkcs11Automatically));
+    document.getElementById("scan-pkcs11-drivers").addEventListener("click", () => runTokenOperation(loadPkcs11Drivers));
+    document.getElementById("save-config").addEventListener("click", () => runTokenOperation(saveConfig));
     document.getElementById("restart-server").addEventListener("click", () => run(restartServer));
     document.getElementById("test-server-status").addEventListener("click", () => run(testServerStatus));
     document.getElementById("server-host").addEventListener("input", () => {
@@ -2104,8 +2225,8 @@ function bindEvents() {
         document.getElementById("server-current-url").textContent = serverUrl(server);
       }
     });
-    document.getElementById("test-token").addEventListener("click", () => run(refreshTokenCertificateCache));
-    document.getElementById("refresh-token-cache").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("test-token").addEventListener("click", () => runTokenOperation(refreshTokenCertificateCache));
+    document.getElementById("refresh-token-cache").addEventListener("click", () => runTokenOperation(refreshTokenCertificateCache));
     document.getElementById("save-development-config").addEventListener("click", () => run(saveDevelopmentConfig));
     document.getElementById("test-development-config").addEventListener("click", () => run(testDevelopmentConfig));
     document.getElementById("signing-behavior-manual").addEventListener("change", () => {
@@ -2128,7 +2249,7 @@ function bindEvents() {
     document.getElementById("development-remember-pin").addEventListener("change", (event) => {
       document.getElementById("development-pin-warning").classList.toggle("hidden", !event.target.checked);
     });
-    document.getElementById("reload-certificates").addEventListener("click", () => run(refreshTokenCertificateCache));
+    document.getElementById("reload-certificates").addEventListener("click", () => runTokenOperation(refreshTokenCertificateCache));
     document.getElementById("reload-sessions").addEventListener("click", () => run(loadSessions));
     document.getElementById("manual-select-file").addEventListener("click", () => run(selectManualFile));
     document.getElementById("manual-clear-files").addEventListener("click", clearManualFiles);
@@ -2188,9 +2309,6 @@ async function bootstrap() {
   bindEvents();
   if (windowMode === "main") {
     await Promise.all([loadStatus(), loadConfig(), loadTokenCertificateCache(), loadSessions()]);
-    window.setInterval(() => {
-      run(loadTokenCertificateCache);
-    }, 10000);
   } else {
     clearSigningForm();
     await loadConfig();

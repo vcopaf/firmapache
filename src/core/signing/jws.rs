@@ -396,7 +396,7 @@ fn certificate_der_base64_with_cache(
         cache_hit = false,
         "certificate DER not found in cache; refreshing"
     );
-    let refreshed = cache.refresh_tokens_and_certificates(config)?;
+    let refreshed = cache.force_refresh_tokens_and_certificates(config)?;
     refreshed
         .certificates
         .into_iter()
